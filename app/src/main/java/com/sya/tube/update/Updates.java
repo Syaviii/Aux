@@ -53,6 +53,8 @@ public final class Updates {
 
     public static long lastChecked(Context context) { return prefs(context).getLong("checked", 0); }
 
+    public static boolean lastCheckFailed(Context context) { return prefs(context).getBoolean("failed", false); }
+
     /** The newest release seen at the last check, or null */
     public static Release known(Context context) {
         SharedPreferences p = prefs(context);
@@ -76,6 +78,7 @@ public final class Updates {
                 Request request = new Request.Builder().url(BuildConfig.UPDATE_API + "/repos/" + BuildConfig.UPDATE_REPO + "/releases/latest")
                     .header("Accept", "application/vnd.github+json").header("User-Agent", "Aux/" + BuildConfig.VERSION_NAME).build();
                 try (Response response = HTTP.newCall(request).execute()) {
+                    if (!response.isSuccessful() || response.body() == null) throw new java.io.IOException("Release check failed");
                     if (response.isSuccessful() && response.body() != null) {
                         JSONObject release = new JSONObject(response.body().string());
                         String version = release.optString("tag_name").replaceFirst("^[vV]", "");
@@ -91,10 +94,13 @@ public final class Updates {
                             found = new Release(version, release.optString("body"), release.optString("html_url"), apk, size);
                             prefs(app).edit().putString("version", found.version).putString("notes", found.notes).putString("page", found.page).putString("apk", found.apk).putLong("size", size).apply();
                         }
+                        if (found == null) throw new java.io.IOException("No installable release");
                     }
                 }
-                prefs(app).edit().putLong("checked", System.currentTimeMillis()).apply();
+                prefs(app).edit().putLong("checked", System.currentTimeMillis()).putBoolean("failed", false).apply();
             } catch (Exception error) {
+                prefs(app).edit().putBoolean("failed", true).apply();
+                com.sya.tube.usage.Usage.error(app, "update_check_failed");
                 com.sya.tube.diag.Diag.log("updates", "check failed " + error.getClass().getSimpleName());
             }
             Release result = found != null ? found : known(app);
@@ -149,6 +155,7 @@ public final class Updates {
                 });
             } catch (Exception error) {
                 com.sya.tube.diag.Diag.log("updates", "download failed " + error.getClass().getSimpleName() + " " + error.getMessage());
+                com.sya.tube.usage.Usage.error(app, "update_download_failed");
                 MAIN.post(() -> progress.onDone(false, "Couldn't download the update, check your connection"));
             }
         });
