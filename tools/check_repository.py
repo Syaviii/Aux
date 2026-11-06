@@ -35,7 +35,7 @@ def inspect_entry(name, data, mode="100644"):
     path = PurePosixPath(name)
     allowed = name in EXACT
     allowed |= name.startswith(("app/src/", "setup/src/")) and path.suffix in SOURCE_EXTENSIONS
-    allowed |= name.startswith("docs/screenshots/") and path.suffix == ".png"
+    allowed |= name.startswith("docs/screenshots/") and path.suffix in {".png", ".jpg"}
     allowed |= name.startswith("third-party/") and path.suffix == ".txt"
     problems = []
     if not allowed or any(part.lower() in FORBIDDEN_PARTS for part in path.parts):

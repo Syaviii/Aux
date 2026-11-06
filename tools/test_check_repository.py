@@ -4,6 +4,8 @@ from check_repository import inspect_entry
 class RepositoryChecks(unittest.TestCase):
     def test_accepts_source(self):
         self.assertEqual([], inspect_entry("app/src/main/java/Main.java", b"class Main {}"))
+    def test_accepts_readme_screenshot(self):
+        self.assertEqual([], inspect_entry("docs/screenshots/car-library.jpg", b"image"))
     def test_rejects_build_outputs_even_when_forced_into_git(self):
         self.assertTrue(inspect_entry("app/build/outputs/app.apk", b"apk"))
     def test_rejects_unlisted_text_assets(self):
