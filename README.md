@@ -22,7 +22,7 @@ Aux is free and open source, with ad blocking and SponsorBlock built in, and you
 
 | Your library | Video controls |
 |---|---|
-| ![Car library](docs/screenshots/car-library.png) | ![Video settings](docs/screenshots/car-player-settings.png) |
+| ![Car library](docs/screenshots/car-library.jpg) | ![Video settings](docs/screenshots/car-player-settings.png) |
 
 | Phone remote | Followed channels | SponsorBlock |
 |---|---|---|
