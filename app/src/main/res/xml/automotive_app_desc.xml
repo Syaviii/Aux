@@ -1,0 +1,7 @@
+<automotiveApp xmlns:tools="http://schemas.android.com/tools">
+    <!-- Private legacy SDK descriptors copied from the CarStream 2.0.5 reference. -->
+    <uses name="service" tools:ignore="InvalidUsesTagAttribute" />
+    <uses name="projection" tools:ignore="InvalidUsesTagAttribute" />
+    <uses name="notification" />
+    <uses name="media" />
+</automotiveApp>

@@ -1,0 +1,38 @@
+Aux
+Copyright 2026 Sya
+
+Aux is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as
+published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See
+LICENSE for the full text.
+
+Aux is not affiliated with, endorsed by or sponsored by Google, YouTube, Android Auto, Jellyfin, Plex or SponsorBlock. Those
+names belong to their owners and are used only to say what Aux works with.
+
+
+Aux contains or links the following work by others.
+
+CarStream by Kiran Kumar, Eselter and Paesani2006
+  https://github.com/thekirankumar/carstream-android-auto
+  Apache License 2.0, see third-party/CarStream-LICENSE-Apache-2.0.txt
+  Aux started as a reconstruction of CarStream 2.0.5. Files under app/src/main/java/com/thekirankumar carry CarStream's
+  package name, those changed for Aux say so in their first line. The Apache License's notices still apply to them.
+
+NewPipe Extractor v0.26.5 by Team NewPipe
+  https://github.com/TeamNewPipe/NewPipeExtractor
+  GNU GPL 3.0 or later, the reason Aux as a whole is licensed under the GPL
+
+VideoEnabledWebView by Cristian Perez
+  https://github.com/cprcrack/VideoEnabledWebView
+  MIT License, see third-party/VideoEnabledWebView-LICENSE.txt
+
+SpeechRecognitionView by Evgenii Zagumennyi
+  https://github.com/zagum/SpeechRecognitionView
+  Apache License 2.0, see third-party/SpeechRecognitionView-LICENSE.txt
+
+aauto-sdk v4.5 by martoreto
+  https://github.com/martoreto/aauto-sdk
+  An unofficial repackaging of Google's Android Auto SDK, fetched from JitPack when Aux is built and not kept in this
+  repository.
+
+ExoPlayer 2.19.1, AndroidX, OkHttp
+  Google, the Android Open Source Project and Square, Apache License 2.0
