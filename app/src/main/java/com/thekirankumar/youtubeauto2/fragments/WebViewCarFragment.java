@@ -132,6 +132,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     private long handoffLastWeb=-2, handoffWebMovedAt;
     private int nativeStartAttempts;
     private long handoffPrepareAt;
+    private com.sya.tube.player.HandoffPosition handoffPosition;
     private String leftVideoId;
     private long leftPositionMs;
     // The video the native player was started for, pending or active
@@ -1039,6 +1040,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
 
     /** A picture that stopped moving for 12 seconds is reloaded at the same spot, a second freeze also lowers the quality */
     private void recoverFrozen(String id,long pos) {
+        if(getContext()!=null)com.sya.tube.usage.Usage.error(getContext(),"web_stall");
         com.sya.tube.diag.Diag.log("signal","video froze at "+pos/1000+"s"+(recoveredOnce?", again":""));
         lastSeekAt=android.os.SystemClock.elapsedRealtime();
         if(recoveredOnce){weakSignal("froze again");return;}
@@ -1851,6 +1853,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         webView.playPreviousTrack();
     }
     @Override public void onNativeVideoFailure() {
+        if(getContext()!=null)com.sya.tube.usage.Usage.error(getContext(),nativeHandoffPending?"handoff_failed":"native_playback_failed");
         // Before the swap the web fullscreen video is still playing, so a failed native start simply stays on it
         if(nativeHandoffPending){
             cancelNativeHandoff();
@@ -2005,6 +2008,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
                 nativeHandoffPending=true;nativeHandoffSyncAttempts=0;handoffBufferWaitStart=0;handoffLastWeb=-2;handoffWebMovedAt=0;
                 nativeVideoId=android.net.Uri.parse(url).getQueryParameter("v");
                 nativeHandoffResumePlaying=state.getBoolean("playing");
+                handoffPosition=new com.sya.tube.player.HandoffPosition((long)(state.getDouble("time")*1000));
                 getView().findViewById(R.id.full_screen_view).setVisibility(View.VISIBLE);
                 // Prepare a few seconds ahead, by the time the native player is ready the web video has reached that point and the buffer already covers it
                 nativePlayerFragment=ExoPlayerFragment.handoff(url,(long)(state.getDouble("time")*1000)+HANDOFF_LEAD_MS,(float)state.optDouble("speed",1),quality,captionsLang,state.optBoolean("capAuto"));
@@ -2033,13 +2037,16 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     }
     /** Stream lookup takes seconds on a phone connection, the native player starts a little ahead of where the web video is by then */
     @Override public void handoffStartPosition(long requested, java.util.function.LongConsumer start) {
-        if(webView==null){start.accept(requested);return;}
+        if(webView==null||handoffPosition==null){start.accept(requested);return;}
+        com.sya.tube.player.HandoffPosition clock=handoffPosition;
         long typical=PreferenceManager.getDefaultSharedPreferences(getContext()).getLong("pref_handoff_prepare_ms",-1);
         // The lead covers this phone's usual prepare time with margin, so the web video reaches the prepared frame after it is ready
         long lead=typical<0?HANDOFF_RESOLVED_LEAD_MS:Math.max(2000,Math.min(12000,typical*3/2+800));
         webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');return v?v.currentTime:null})()",value->{
-            long position=requested;
-            try { position=Math.max(requested,(long)(Double.parseDouble(value)*1000)+lead); } catch(Exception ignored) {}
+            if(!nativeHandoffPending||clock!=handoffPosition)return;
+            double seconds;
+            try { seconds=Double.parseDouble(value); } catch(RuntimeException ignored) { seconds=Double.NaN; }
+            long position=clock.prepare(seconds,lead);
             handoffPrepareAt=android.os.SystemClock.elapsedRealtime();
             debugStage("handoffPrepare at "+position+" requested "+requested+" lead "+lead);
             start.accept(position);
@@ -2047,29 +2054,37 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     }
     /** Waits until the native buffer covers the web player's current position, then continues natively from that exact moment */
     private void syncNativeHandoff() {
-        if(!nativeHandoffPending||webView==null||nativePlayerFragment==null)return;
+        if(!nativeHandoffPending||webView==null||nativePlayerFragment==null||handoffPosition==null)return;
+        com.sya.tube.player.HandoffPosition clock=handoffPosition;
         if(nativeVideoId!=null&&!nativeVideoId.equals(watchVideoId())){debugStage("handoffCancelled page moved on");cancelNativeHandoff();return;}
-        webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');return v?v.currentTime:null})()",value->{
-            if(!nativeHandoffPending||nativePlayerFragment==null)return;
+        webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');return v?{time:v.currentTime,playing:!v.paused&&!v.ended}:null})()",value->{
+            if(!nativeHandoffPending||nativePlayerFragment==null||clock!=handoffPosition)return;
             double seconds;
-            try { seconds=Double.parseDouble(value); } catch(NumberFormatException error) { seconds=-1; }
-            long web=seconds<0?-1:(long)(seconds*1000);
+            try {
+                org.json.JSONObject state=new org.json.JSONObject(value);
+                seconds=state.optDouble("time",Double.NaN);
+                nativeHandoffResumePlaying=state.optBoolean("playing",nativeHandoffResumePlaying);
+            } catch(Exception error) { seconds=Double.NaN; }
+            long web=Double.isFinite(seconds)&&seconds>=0&&seconds<Long.MAX_VALUE/1000.0?(long)(seconds*1000):-1;
             long prepared=nativePlayerFragment.position();
+            long target=clock.target(seconds,prepared);
+            if(clock.movedBack()){
+                debugStage("handoffCancelled seek moved back");
+                cancelNativeHandoff();
+                return;
+            }
             long now0=android.os.SystemClock.elapsedRealtime();
             if(web!=handoffLastWeb){handoffLastWeb=web;handoffWebMovedAt=now0;}
             else if(handoffWebMovedAt==0)handoffWebMovedAt=now0;
             // Paused, or left on the page when its fullscreen did not take, the web video never reaches the prepared frame
             boolean webStuck=now0-handoffWebMovedAt>1500;
             if(webStuck&&web<prepared-40)debugStage("handoffWebStuck web="+web+" prepared="+prepared);
-            if(!webStuck&&web>=0&&web<prepared-40&&++nativeHandoffSyncAttempts<400) {
+            if(web>=0&&clock.waitingForWeb(prepared,webStuck)&&++nativeHandoffSyncAttempts<400) {
                 // The native player waits at the prepared frame, it starts the moment the web video reaches it so no seek is needed
                 long remaining=prepared-web;
                 webView.postDelayed(this::syncNativeHandoff,Math.max(10,Math.min(250,remaining-60)));
                 return;
             }
-            // The web video already passed the prepared point, so continue from where it is now
-            // A stuck web video sits behind the prepared frame, starting there would skip the seconds in between
-            long target=webStuck&&web>=0?web:web<0||web<prepared+80?prepared:web+150;
             // Taking over with an empty buffer freezes right after the switch on a slow connection, the web video keeps
             // playing meanwhile, so waiting for a little buffer costs nothing, past 8 seconds it switches anyway
             long ahead=nativePlayerFragment.bufferedPosition()-target;

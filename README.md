@@ -38,6 +38,8 @@ Requires Android 8 or later
 
 Keep Aux Setup installed for updates, and use **Fix Aux for Android Auto** if Aux doesn't appear in your car's app list
 
+Usage reporting is on by default to help improve Aux. Reports include app and Android versions, phone model, country, car use and error counts. Vehicle and head unit details are optional. Turn it off in **Settings > Share usage**; watch history is never sent
+
 ## Vehicle compatibility
 
 | Vehicle | Video | Audio | Fullscreen | Phone remote | Steering-wheel controls | Background audio |

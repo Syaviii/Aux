@@ -144,11 +144,13 @@ public class ExoPlayerFragment extends Fragment implements Player.Listener {
     public void seekAndPlay(long position,boolean play) {
         if(player==null)return;
         handoffSwapPending=true;
+        Player.Listener ready=new Player.Listener(){@Override public void onPlaybackStateChanged(int state){if(!play&&state==Player.STATE_READY&&handoffSwapPending){handoffSwapPending=false;player.removeListener(this);listener.onNativeHandoffPlaying();}}};
+        if(!play)player.addListener(ready);
         // Seeking to the frame already shown would flush and re-decode, which is exactly the delay the handoff avoids
         if(Math.abs(player.getCurrentPosition()-position)>60)player.seekTo(position);
         player.setPlayWhenReady(play);
         // A paused handoff never reports isPlaying, so it is complete as soon as the seek lands
-        if(!play)player.addListener(new Player.Listener(){@Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&handoffSwapPending){handoffSwapPending=false;player.removeListener(this);listener.onNativeHandoffPlaying();}}});
+        if(!play)ready.onPlaybackStateChanged(player.getPlaybackState());
     }
     public long position() { return player==null||player.getPlaybackState()==Player.STATE_IDLE?requireArguments().getLong("position"):player.getCurrentPosition(); }
     public boolean playing() { return player!=null&&player.getPlayWhenReady(); }

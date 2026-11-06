@@ -9,6 +9,7 @@ val releaseKey = releaseKeyFile.takeIf { it.exists() }?.let { file -> Properties
 val updateRepo = (findProperty("aux.updateRepo") as String?).orEmpty()
 // Where the release list is read, a test build can point this at a local stand-in for GitHub
 val updateApi = (findProperty("aux.updateApi") as String?) ?: "https://api.github.com"
+val usageEndpoint = (findProperty("aux.usageEndpoint") as String?) ?: "https://auxstats.syavi.dev/v1/report"
 
 android {
     namespace = "com.thekirankumar.youtubeauto2"
@@ -17,10 +18,11 @@ android {
         applicationId = "dev.syavi.aux"
         minSdk = 24
         targetSdk = 35
-        versionCode = 41
-        versionName = "1.0.0"
+        versionCode = 42
+        versionName = "1.0.1"
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         buildConfigField("String", "UPDATE_API", "\"$updateApi\"")
+        buildConfigField("String", "USAGE_ENDPOINT", "\"$usageEndpoint\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { buildConfig = true }

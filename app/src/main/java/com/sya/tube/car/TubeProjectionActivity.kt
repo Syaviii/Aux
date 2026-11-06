@@ -45,6 +45,7 @@ class TubeProjectionActivity : com.google.android.gms.car.c(), CarUiHost {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        com.sya.tube.usage.Usage.projection(baseContext, true)
         sdkContext = ad(baseContext)
         ui = CarUiController(sdkContext, a(), viewLoader, null)
         super.setContentView(ui.d())
@@ -138,6 +139,7 @@ class TubeProjectionActivity : com.google.android.gms.car.c(), CarUiHost {
     override fun onPause() { controller.dispatchPause(); host.registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE); super.onPause() }
     override fun onStop() { controller.dispatchStop(); host.registry.handleLifecycleEvent(Lifecycle.Event.ON_STOP); ui.b(); super.onStop(); idleHandler.postDelayed(closeWhenIdle, 60_000) }
     override fun onDestroy() {
+        com.sya.tube.usage.Usage.projection(baseContext, false)
         idleHandler.removeCallbacks(closeWhenIdle)
         search.hideSearchBox()
         controller.dispatchDestroy(); host.registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)

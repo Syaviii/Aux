@@ -29,6 +29,7 @@ import com.sya.tube.player.SponsorBlock;
 import com.sya.tube.settings.Backup;
 import com.sya.tube.settings.SettingsUi;
 import com.sya.tube.settings.TubePrefs;
+import com.sya.tube.usage.Usage;
 import com.thekirankumar.youtubeauto2.BuildConfig;
 import com.thekirankumar.youtubeauto2.R;
 import java.util.ArrayDeque;
@@ -170,6 +171,11 @@ public class SettingsPhoneActivity extends AppCompatActivity {
                     v -> exportFile.launch("Aux backup " + new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date()) + ".json"));
                 ui.link(backup, "Restore backup", "Restore an Aux backup file", v -> importFile.launch(new String[]{"application/json", "application/octet-stream", "text/plain", "*/*"}));
 
+                LinearLayout reporting = ui.section(page, "Usage reporting");
+                ui.toggle(reporting, "Share usage", "Help improve Aux with usage and error counts", Usage.ENABLED, true, null);
+                ui.link(reporting, "What gets shared", "Device details, country and car use", v -> reportingDetails());
+                ui.link(reporting, "Vehicle and head unit", "Optional, leave blank if unknown", v -> vehicleDetails());
+
                 LinearLayout advanced = ui.section(page, "Advanced");
                 ui.toggle(advanced, "Desktop site", "Use YouTube's desktop layout", "pref_enable_desktop_mode", false, null);
                 ui.toggle(advanced, "Hide playback notification", "Also hide lock screen controls", "pref_disable_notifications", false, null);
@@ -196,13 +202,33 @@ public class SettingsPhoneActivity extends AppCompatActivity {
                     startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(source)));
                 });
                 ui.link(about, "Privacy", "Where your data goes", v -> new AlertDialog.Builder(SettingsPhoneActivity.this).setTitle("Privacy")
-                    .setMessage("Aux has no account system or tracking\n\nIt connects to:\n\n• YouTube for pages and videos\n"
+                    .setMessage("Aux has no account system\n\nIt connects to:\n\n• YouTube for pages and videos\n"
                         + "• SponsorBlock to find segments, using part of the video's hashed ID\n• Your Jellyfin or Plex servers, and plex.tv for code sign-in\n"
-                        + "• GitHub for updates\n\nSign-in details, channels and history are stored on this phone, and Aux only shares diagnostics or crash reports when you choose to send them")
+                        + "• GitHub for updates\n\nUsage reporting is on by default. It sends a random installation ID, app and Android versions, phone model, country, car use and error counts to auxstats.syavi.dev. Optional vehicle details are shared if you add them. Turn off Share usage above to stop it.\n\nUsage reports contain no video titles, URLs, watch history or account details. Sign-in details, channels and history stay on this phone. Full diagnostics and crash reports are shared only when you choose to send them")
                     .setPositiveButton(android.R.string.ok, null).show());
                 if (com.sya.tube.update.Updates.enabled()) checkForUpdate(false);
             }
         };
+    }
+
+    private void reportingDetails() {
+        new AlertDialog.Builder(this).setTitle("Usage reporting")
+            .setMessage("Aux sends a small usage report to auxstats.syavi.dev. It includes a random installation ID, app and Android versions, phone make and model, country, car use and error counts. Vehicle and head unit details are optional.\n\nNo video titles, URLs, watch history, account details, VINs or precise location are included. Country comes from the connection; the service does not store IP addresses.\n\nReports are limited to once an hour. Daily records are kept for 90 days, then only totals remain. Turning Share usage off cancels pending reports and removes this phone's reporting ID. Turning it back on creates a new ID.")
+            .setPositiveButton(android.R.string.ok, null).show();
+    }
+
+    private void vehicleDetails() {
+        LinearLayout fields = ui.column();
+        LinearLayout card = ui.section(fields, "Optional details");
+        EditText vehicle = ui.field(card, "Vehicle", "Make and model, no VIN", SettingsUi.TEXT);
+        EditText unit = ui.field(card, "Head unit", "Make and model", SettingsUi.TEXT);
+        vehicle.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});
+        unit.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});
+        vehicle.setText(Usage.vehicle(this)); unit.setText(Usage.unit(this));
+        ui.note(fields, "Leave blank if unknown. Shared only while Share usage is on.");
+        new AlertDialog.Builder(this).setTitle("Vehicle and head unit").setView(fields)
+            .setPositiveButton("Save", (dialog, which) -> Usage.setVehicle(this, vehicle.getText().toString(), unit.getText().toString()))
+            .setNegativeButton(android.R.string.cancel, null).show();
     }
 
     private TextView updateRow;
@@ -210,6 +236,7 @@ public class SettingsPhoneActivity extends AppCompatActivity {
     private String updateSummary() {
         if (!com.sya.tube.update.Updates.enabled()) return "Update checks are off in this build";
         com.sya.tube.update.Updates.Release known = com.sya.tube.update.Updates.known(this);
+        if (com.sya.tube.update.Updates.lastCheckFailed(this)) return "Couldn't check for updates";
         if (known != null && known.newer()) return "Aux " + known.version + " is available, tap to update";
         long checked = com.sya.tube.update.Updates.lastChecked(this);
         return checked == 0 ? "Check for a new version" : "Up to date, checked " + android.text.format.DateUtils.getRelativeTimeSpanString(checked);
@@ -223,6 +250,7 @@ public class SettingsPhoneActivity extends AppCompatActivity {
             if (isFinishing()) return;
             if (updateRow != null) updateRow.setText(updateSummary());
             if (!tapped) return;
+            if (com.sya.tube.update.Updates.lastCheckFailed(this)) { toast("Couldn't check for updates, check your connection"); return; }
             if (release == null || !release.newer()) { toast("Aux is up to date"); return; }
             new AlertDialog.Builder(this).setTitle("Aux " + release.version).setMessage(release.notes.isEmpty() ? "A new version is ready" : release.notes)
                 .setPositiveButton("Update", (d, w) -> com.sya.tube.update.Updates.install(this, release, new com.sya.tube.update.Updates.Progress() {
