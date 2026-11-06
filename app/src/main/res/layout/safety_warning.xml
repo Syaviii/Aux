@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:background="@color/tube_background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <TextView
+        android:id="@+id/app_info_view"
+        android:padding="5dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="App version"/>
+    <TextView
+        android:textSize="40sp"
+        android:textStyle="bold"
+        android:textColor="@android:color/white"
+        android:gravity="center"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/warning_title"
+        android:drawableLeft="@drawable/ic_car_collision"
+        android:drawablePadding="5dp"/>
+    <TextView
+        android:textSize="16sp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:paddingLeft="20dp"
+        android:paddingRight="20dp"
+        android:layout_width="wrap_content"
+        android:layout_height="0dp"
+        android:text="@string/warning_body"
+        android:layout_weight="1"/>
+    <Button
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textAllCaps="false"
+        android:textColor="@android:color/black"
+        android:minWidth="260dp"
+        android:paddingStart="32dp"
+        android:paddingEnd="32dp"
+        android:id="@+id/continue_button"
+        android:background="@drawable/car_pill_primary"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp"
+        android:focusable="true"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:layout_marginBottom="20dp"
+        android:text="@string/warning_accept_button"/>
+</LinearLayout>

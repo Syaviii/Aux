@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:background="@android:color/black"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <com.google.android.exoplayer2.ui.PlayerView
+        app:surface_type="surface_view"
+        app:played_color="@color/tube_accent"
+        app:scrubber_color="@color/tube_accent"
+        app:buffered_color="#66FFFFFF"
+        app:unplayed_color="#33FFFFFF"
+        app:ad_marker_color="#CCFFFFFF"
+        app:played_ad_marker_color="#CCFFFFFF"
+        android:id="@+id/exoplayer_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+    <ProgressBar
+        android:id="@+id/player_loading"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:indeterminateTint="@color/tube_on_surface"
+        android:layout_centerInParent="true"
+        android:contentDescription="Loading video" />
+    <!-- A text shadow keeps the title readable on bright video without a translucent band blended over every frame -->
+    <TextView
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="@color/tube_on_surface"
+        android:shadowColor="#CC000000"
+        android:shadowRadius="8"
+        android:shadowDy="1"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:id="@+id/player_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="24dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginRight="24dp"
+        android:text="Loading ..."
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentTop="true"/>
+    <TextView
+        android:textSize="15sp"
+        android:textColor="@color/tube_muted"
+        android:shadowColor="#CC000000"
+        android:shadowRadius="6"
+        android:id="@+id/player_album"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="24dp"
+        android:layout_marginRight="24dp"
+        android:layout_marginTop="2dp"
+        android:text="Please wait"
+        android:layout_below="@+id/player_title"
+        android:layout_alignParentLeft="true"/>
+</RelativeLayout>

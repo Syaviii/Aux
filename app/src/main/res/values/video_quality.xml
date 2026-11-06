@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="video_quality_labels"><item>Auto</item><item>720p preferred</item><item>1080p preferred</item></string-array>
+    <string-array name="video_quality_values"><item>auto</item><item>hd720</item><item>hd1080</item></string-array>
+</resources>
