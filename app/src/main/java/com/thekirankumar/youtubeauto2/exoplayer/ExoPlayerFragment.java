@@ -200,6 +200,7 @@ public class ExoPlayerFragment extends Fragment implements Player.Listener {
         if(saved!=null) { resumePosition=saved.getLong("position");resumeIndex=saved.getInt("index");playWhenReady=saved.getBoolean("playing",false); }
         title=view.findViewById(R.id.player_title); album=view.findViewById(R.id.player_album); playerView=view.findViewById(R.id.exoplayer_view); loading=view.findViewById(R.id.player_loading);
         playerView.setControllerShowTimeoutMs(8000);
+        everReady=false;
         playerView.setControllerVisibilityListener((PlayerControlView.VisibilityListener)visibility->{ title.setVisibility(visibility); album.setVisibility(visibility); listener.onNativePlayerControlsVisibilityChange(visibility); });
         DefaultRenderersFactory renderers=new com.sya.tube.player.SyncedRenderersFactory(requireContext());
         // A deeper buffer rides out cellular dips while driving, startup still begins after half a second
@@ -253,7 +254,7 @@ public class ExoPlayerFragment extends Fragment implements Player.Listener {
                     view.post(()->{if(player!=null&&getView()==view)listener.onNativeVideoFailure();});
                 }
             });
-            view.postDelayed(()->{if(player!=null&&getView()==view&&player.getPlaybackState()!=Player.STATE_READY&&player.getPlaybackState()!=Player.STATE_ENDED)listener.onNativeVideoFailure();},30000);
+            view.postDelayed(()->{if(player!=null&&getView()==view&&!everReady&&player.getPlaybackState()!=Player.STATE_READY&&player.getPlaybackState()!=Player.STATE_ENDED)listener.onNativeVideoFailure();},30000);
             // Debug builds sample every 5 seconds for the benchmark, every build keeps a 10 second sample in the diagnostics log
             Runnable sample=new Runnable(){int tick;public void run(){
                 if(player==null||getView()!=view)return;
