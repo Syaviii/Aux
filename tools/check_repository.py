@@ -25,6 +25,7 @@ EXACT = {
 SOURCE_EXTENSIONS = {".java", ".kt", ".xml", ".png", ".webp", ".jpg", ".css", ".js", ".mp3"}
 FORBIDDEN_PARTS = {"build", ".gradle", ".kotlin", ".idea", "__pycache__", "keys", "backups", "artifacts"}
 SECRETS = {
+    "hardcoded reporting destination": rb"(?im)^[ \t]*(?:aux\.usageEndpoint[ \t]*[=:][ \t]*[^\s#!]|val[ \t]+usageEndpoint[^\r\n]*https?://)",
     "private key": rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
     "access token": rb"(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,})",
     "literal credential": rb"(?im)^\s*(?:storePassword|keyPassword|password|api[_-]?key|access[_-]?token)\s*[=:]\s*[\"']?([A-Za-z0-9+/=_-]{12,})[\"']?\s*$",

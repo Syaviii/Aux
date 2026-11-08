@@ -3,9 +3,6 @@
     <string name="car_service_name">CarStream</string>
     <string name="app_name_player">CarStream player</string>
     <string name="channel_name">CarStream Channel</string>
-    <string name="warning_title">ПРЕДУПРЕДУВАЊЕ !!!</string>
-    <string name="warning_body">Гледањето видеозаписи додека возите може да предизвика сообраќајни несреќи. Отфрлајќи го ова предупредување, вие се согласувате дека сте свесни и одговорни за последиците од тоа. Ниту развивачот на оваа апликација, ниту Гугл, ниту производителот на оваа опрема, ниту производителот на овој автомобил не е одговорен за несреќи предизвикани поради вашата неодговорност. Можете да се префрлите на слушање во позадина со кликнување на иконата за аудио.</string>
-    <string name="warning_accept_button">Го прифаќам ризикот</string>
     <string name="url_edittext_phone_app">URL :</string>
     <string name="about_page">Блог</string>
     <string name="webview_back">Назад</string>

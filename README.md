@@ -36,7 +36,7 @@ Requires Android 8 or later
 2. Open it, tap **Install Aux**, and allow the microphone for voice search
 3. Reconnect to Android Auto and open Aux on the car screen
 
-Keep Aux Setup installed for updates, and use **Fix Aux for Android Auto** if Aux doesn't appear in your car's app list
+Keep Aux Setup installed for updates, and tap **Reinstall** if Aux doesn't appear in your car's app list
 
 Usage reporting is on by default to help improve Aux. Reports include app and Android versions, phone model, country, car use and error counts. Vehicle and head unit details are optional. Turn it off in **Settings > Share usage**; watch history is never sent
 

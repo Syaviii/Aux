@@ -103,6 +103,11 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
             }
         }
         bookmarkViewHolder.title.setText(R.string.add_bookmark);
+        bookmarkViewHolder.itemView.setOnLongClickListener(null);
+        bookmarkViewHolder.itemView.setLongClickable(false);
+        bookmarkViewHolder.itemView.setOnKeyListener(null);
+        bookmarkViewHolder.favicon.setVisibility(View.GONE);
+        bookmarkViewHolder.setArtworkStyle(true);
         bookmarkViewHolder.itemView.setOnClickListener(new View.OnClickListener() {
             @Override // android.view.View.OnClickListener
             public void onClick(View view) {
@@ -115,7 +120,7 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
                 }
             }
         });
-        bookmarkViewHolder.thumbnail.setImageResource(R.drawable.add_bookmark);
+        bookmarkViewHolder.thumbnail.setImageResource(R.drawable.bookmark_ic_add);
         bookmarkViewHolder.setDeleteMode(false);
     }
 
@@ -136,8 +141,8 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
 
         public BookmarkViewHolder(Context context, ViewGroup viewGroup) {
             super(((LayoutInflater) context.getSystemService(android.content.Context.LAYOUT_INFLATER_SERVICE)).inflate(R.layout.bookmark_layout, viewGroup, false));
-            AspectRatioFrameLayout aspectRatioFrameLayout = (AspectRatioFrameLayout) this.itemView;
-            aspectRatioFrameLayout.setAspectRatio(1.0f);
+            AspectRatioFrameLayout aspectRatioFrameLayout = this.itemView.findViewById(R.id.bookmark_artwork);
+            aspectRatioFrameLayout.setAspectRatio(16f / 9f);
             aspectRatioFrameLayout.setResizeMode(1);
             this.title = (TextView) this.itemView.findViewById(R.id.bookmark_title);
             this.thumbnail = (ImageView) this.itemView.findViewById(R.id.bookmark_thumbnail);
@@ -147,6 +152,8 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
 
         public void setBookmark(Bookmark bookmark) {
             this.title.setText(bookmark.getTitle());
+            this.delete.setContentDescription(itemView.getContext().getString(R.string.bookmark_delete, bookmark.getTitle()));
+            setArtworkStyle(bookmark.isPreventDelete());
             byte[] thumbnail = bookmark.getThumbnail();
             int thumbnailResource = bookmark.getThumbnailResource();
             int faviconResource = bookmark.getFaviconResource();
@@ -170,6 +177,12 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
                 this.favicon.setVisibility(android.view.View.GONE);
                 this.favicon.setImageBitmap(null);
             }
+        }
+
+        private void setArtworkStyle(boolean icon) {
+            int padding = icon ? (int) (32 * itemView.getResources().getDisplayMetrics().density) : 0;
+            thumbnail.setPadding(padding, padding, padding, padding);
+            thumbnail.setScaleType(icon ? ImageView.ScaleType.FIT_CENTER : ImageView.ScaleType.CENTER_CROP);
         }
 
         public void setDeleteMode(boolean z) {

@@ -190,7 +190,8 @@ public final class CarRemoteBar {
         root.removeCallbacks(tick);
         CarRemote.Car car = CarRemote.car();
         root.setVisibility(car == null ? View.GONE : View.VISIBLE);
-        if (car != null) { car.remoteState(this::show); if (onCarTick != null) onCarTick.run(); }
+        if (car != null) car.remoteState(this::show);
+        if (onCarTick != null) onCarTick.run();
         root.postDelayed(tick, 1000);
     }
 

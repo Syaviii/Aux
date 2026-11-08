@@ -11,10 +11,13 @@
             android:id="@+id/toolbar"
             android:background="@color/tube_background"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"/>
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"/>
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recycler_view"
             android:descendantFocusability="afterDescendants"
+            android:padding="6dp"
+            android:clipToPadding="false"
             android:layout_width="match_parent"
             android:layout_height="match_parent"/>
     </LinearLayout>

@@ -38,13 +38,13 @@ final class UpdateInbox {
             String failure = null;
             try {
                 if (incoming != null) {
-                    if (!"content".equals(incoming.getScheme())) throw new IOException("Unsupported update source");
+                    if (!"content".equals(incoming.getScheme())) throw new InvalidUpdate("Couldn't open this update");
                     try (InputStream in = app.getContentResolver().openInputStream(incoming); OutputStream out = new FileOutputStream(candidate)) {
-                        if (in == null) throw new IOException("Missing update");
+                        if (in == null) throw new InvalidUpdate("Update file not found");
                         byte[] buffer = new byte[1 << 16];
                         long total = 0;
                         for (int n; (n = in.read(buffer)) > 0; ) {
-                            if ((total += n) > 64L * 1024 * 1024) throw new IOException("Update is too large");
+                            if ((total += n) > 64L * 1024 * 1024) throw new InvalidUpdate("Update file is too large");
                             out.write(buffer, 0, n);
                         }
                     }
@@ -54,13 +54,13 @@ final class UpdateInbox {
                 PackageInfo own = pm.getPackageInfo(app.getPackageName(), PackageManager.GET_SIGNATURES);
                 if (archive == null || !SetupActivity.TUBE.equals(archive.packageName) || archive.signatures == null
                     || archive.signatures.length == 0 || !java.util.Arrays.equals(own.signatures, archive.signatures))
-                    throw new IOException("That update isn't a genuine Aux build");
+                    throw new InvalidUpdate("Not a valid Aux update");
                 try {
                     PackageInfo current = pm.getPackageInfo(SetupActivity.TUBE, 0);
                     if (PackageInfoCompat.getLongVersionCode(archive) < PackageInfoCompat.getLongVersionCode(current))
-                        throw new IOException("That update is older than your installed Aux");
+                        throw new InvalidUpdate("A newer version of Aux is already installed");
                 } catch (PackageManager.NameNotFoundException absent) { }
-            } catch (Exception error) { failure = error instanceof IOException ? error.getMessage() : "Couldn't read the update"; }
+            } catch (Exception error) { failure = error instanceof InvalidUpdate ? error.getMessage() : "Couldn't read the update"; }
             final String result = failure;
             MAIN.post(() -> {
                 if (id != generation) { if (incoming != null) candidate.delete(); return; }
@@ -70,11 +70,14 @@ final class UpdateInbox {
                     problem = null;
                 } else {
                     candidate.delete();
-                    problem = result == null ? "Couldn't save the update. Try again" : result;
+                    problem = result == null ? "Couldn't save the update" : result;
                 }
                 notifyChanged();
             });
         });
+    }
+    private static final class InvalidUpdate extends IOException {
+        InvalidUpdate(String message) { super(message); }
     }
     private UpdateInbox() { }
 }

@@ -4,9 +4,6 @@
     <string name="car_service_name">CarStream</string>
     <string name="app_name_player">Reproductor CarStream</string>
     <string name="channel_name">Canal CarStream</string>
-    <string name="warning_title">ATENCIÓN !!!</string>
-    <string name="warning_body">" Ver videos mientras conduce puede causar accidentes de tráfico. Al ignorar esta advertencia, usted acepta que es consciente y responsable de las consecuencias que pueda ocasionar. Ni el desarrollador de esta aplicación ni Google, ni el fabricante de este equipo ni el fabricante de este automóvil son responsables de los accidentes causados por su negligencia. Puede cambiar a reproducción de fondo haciendo clic en el ícono de medios en su lugar. "</string>
-    <string name="warning_accept_button">Entiendo los riesgos</string>
     <string name="url_edittext_phone_app">URL :</string>
     <string name="about_page">Acerca de</string>
     <string name="webview_back">Volver</string>

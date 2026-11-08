@@ -21,5 +21,14 @@ class RepositoryChecks(unittest.TestCase):
         self.assertNotIn(secret.decode(), str(issues))
     def test_rejects_symlinks(self):
         self.assertTrue(inspect_entry("README.md", b"elsewhere", "120000"))
+    def test_rejects_checked_in_reporting_destination(self):
+        data = b"aux.usageEndpoint=https://reports.example.invalid/ingest\n"
+        self.assertTrue(inspect_entry("gradle.properties", data))
+    def test_rejects_reporting_destination_default_in_build_script(self):
+        data = b'val usageEndpoint = findProperty("aux.usageEndpoint") ?: "https://reports.example.invalid/ingest"\n'
+        self.assertTrue(inspect_entry("app/build.gradle.kts", data))
+    def test_accepts_private_reporting_configuration_without_a_destination(self):
+        self.assertEqual([], inspect_entry("gradle.properties", b"aux.usageEndpoint=\n"))
+        self.assertEqual([], inspect_entry("app/build.gradle.kts", b'val usageEndpoint = providers.environmentVariable("AUX_USAGE_ENDPOINT").orElse("")\n'))
 
 if __name__ == "__main__": unittest.main()

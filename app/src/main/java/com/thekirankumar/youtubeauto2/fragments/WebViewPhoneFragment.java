@@ -81,6 +81,9 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
     private ProgressBar progressBar;
     private SharedPreferences sharedPrefs;
     private VideoWebView webView;
+    private LinearLayout pageError;
+    private String failedPageUrl;
+    private boolean phoneVideosAllowed, phoneVideosLimited, refreshPhoneLibrary;
     private android.content.BroadcastReceiver playbackReceiver;
 
     private long getAvailableActions() {
@@ -170,7 +173,8 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         if (menuItem.getItemId() == R.id.back) {
             this.webView.goBack();
         } else if (menuItem.getItemId() == R.id.refresh) {
-            this.webView.reload();
+            if (failedPageUrl != null) retryPage();
+            else this.webView.reload();
         } else if (menuItem.getItemId() == R.id.bookmark_button) {
             showBookmarksScreen();
         } else if (menuItem.getItemId() == R.id.library) {
@@ -202,7 +206,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
                     }
                     com.sya.tube.library.Subscriptions.add(getContext(), java.util.Collections.singletonList(channel));
                     com.sya.tube.library.Subscriptions.refresh(getContext());
-                    toast("Following " + channel.name + ", find it in Library");
+                    toast("Following " + channel.name);
                 });
             } catch (Exception error) {
                 com.sya.tube.diag.Diag.log("follow", "lookup failed " + error.getClass().getSimpleName() + " " + error.getMessage());
@@ -213,14 +217,17 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
 
     private void unlock() {
         new android.app.AlertDialog.Builder(requireContext()).setTitle("Android Auto")
-            .setMessage("Aux uses the development car surface. Enable Unknown sources in Android Auto developer settings. Root changes to Google services are not needed.")
+            .setMessage("Enable Unknown sources in Android Auto developer settings, then reconnect your car.")
             .setPositiveButton(android.R.string.ok, null).show();
     }
 
     @Override // androidx.fragment.app.Fragment
     public void onViewCreated(View view, Bundle bundle) {
         super.onViewCreated(view, bundle);
-        new com.sya.tube.remote.CarRemoteBar(view.findViewById(R.id.car_remote)).setOnCarTick(() -> followCar(false));
+        new com.sya.tube.remote.CarRemoteBar(view.findViewById(R.id.car_remote)).setOnCarTick(() -> {
+            updateCarHint();
+            followCar(false);
+        });
         // A recent video continues on the car while it is connected, otherwise here on the phone
         recentStrip=new com.sya.tube.remote.RecentStrip(view.findViewById(R.id.recent_strip),item->{
             com.sya.tube.remote.CarRemote.Car car=com.sya.tube.remote.CarRemote.car();
@@ -229,6 +236,9 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         });
         this.progressBar = (ProgressBar) view.findViewById(R.id.progress_bar);
         this.webView = (VideoWebView) view.findViewById(R.id.web_view);
+        phoneVideosAllowed = com.sya.tube.library.PhoneVideos.allowed(requireContext());
+        phoneVideosLimited = com.sya.tube.library.PhoneVideos.limited(requireContext());
+        createPageError();
         this.editText = (EditText) view.findViewById(R.id.edittext_url);
         view.findViewById(R.id.home_button).setOnClickListener(v -> goHome());
         view.findViewById(R.id.menu_button).setOnClickListener(this::showMenu);
@@ -240,7 +250,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
             @Override public void afterTextChanged(android.text.Editable s) { clear.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE); }
         });
         View hint = view.findViewById(R.id.car_hint);
-        if (!getSharedPrefs().getBoolean(PREF_CAR_HINT_DISMISSED, false)) hint.setVisibility(View.VISIBLE);
+        updateCarHint();
         view.findViewById(R.id.car_hint_close).setOnClickListener(v -> {
             hint.setVisibility(View.GONE);
             getSharedPrefs().edit().putBoolean(PREF_CAR_HINT_DISMISSED, true).apply();
@@ -302,7 +312,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView webView, String str) {
-                WebResourceResponse library=com.sya.tube.library.LibraryPages.intercept(appContext,str);
+                WebResourceResponse library=com.sya.tube.library.LibraryPages.intercept(appContext,str,true);
                 if(library!=null) return library;
                 WebResourceResponse local=com.thekirankumar.youtubeauto2.utils.LocalFileBrowser.intercept(str);
                 if(local!=null) return local;
@@ -399,7 +409,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         if (crash == null || getContext() == null) return;
         com.sya.tube.diag.Diag.clearCrash();
         AlertDialog.Builder dialog = new AlertDialog.Builder(requireContext()).setTitle("Aux closed unexpectedly")
-            .setMessage("A crash report is ready. It has the Aux and Android versions, the phone model and where in Aux it happened, no account details\n\n" + crash.split("\n\n")[0])
+            .setMessage("Share a crash report?")
             .setNeutralButton("Not now", null)
             .setNegativeButton("Share", (d, w) -> {
                 Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, "Aux crash report").putExtra(Intent.EXTRA_TEXT, crash);
@@ -456,6 +466,23 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
     private String lastCarVideoId;
     private com.sya.tube.remote.RecentStrip recentStrip;
 
+    private void updateCarHint() {
+        if (getView() == null) return;
+        getView().findViewById(R.id.car_hint).setVisibility(com.sya.tube.remote.CarRemote.car() == null
+            && !getSharedPrefs().getBoolean(PREF_CAR_HINT_DISMISSED, false) ? View.VISIBLE : View.GONE);
+    }
+
+    /** A changed grant refreshes only the local Library, leaving browsing and the active player in place */
+    private void refreshPhoneLibrary() {
+        if (!refreshPhoneLibrary || webView == null || getChildFragmentManager().findFragmentByTag(PLAYER_FRAGMENT_TAG) != null) return;
+        String url = webView.getUrl();
+        if (com.sya.tube.library.LibraryPages.isLibrary(url)) {
+            String path = Uri.parse(url).getPath();
+            if ("/tube/phone".equals(path) || "/tube/library".equals(path)) webView.reload();
+        }
+        refreshPhoneLibrary = false;
+    }
+
     /**
      * Opening the phone shows the video the car plays, and a phone still on the car's previous video follows it to the
      * next one, a phone browsing anything else is left where it is
@@ -476,6 +503,13 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
     @Override // androidx.fragment.app.Fragment
     public void onResume() {
         super.onResume();
+        boolean allowed = com.sya.tube.library.PhoneVideos.allowed(requireContext());
+        boolean limited = com.sya.tube.library.PhoneVideos.limited(requireContext());
+        refreshPhoneLibrary |= allowed != phoneVideosAllowed || limited != phoneVideosLimited || limited;
+        phoneVideosAllowed = allowed;
+        phoneVideosLimited = limited;
+        refreshPhoneLibrary();
+        updateCarHint();
         followCar(true);
         offerCrashReport();
         offerUpdate();
@@ -490,6 +524,8 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         if(playbackReceiver!=null) { requireContext().unregisterReceiver(playbackReceiver); playbackReceiver=null; }
         if(mediaBrowser!=null) { mediaBrowser.disconnect(); mediaBrowser=null; }
         if(webView!=null) { webView.destroy(); webView=null; }
+        pageError = null;
+        failedPageUrl = null;
         super.onDestroyView();
     }
     @Override public void onVideoElementDiscovered() { if(webView!=null) { webView.attachVideoListeners(); applySegments(); } }
@@ -549,7 +585,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
                 com.sya.tube.library.MediaServers.Queue queue=com.sya.tube.library.LibraryPages.resolve(app,link);
                 if(webView!=null)webView.post(()->showMediaPlayer(queue));
             } catch(Exception error) {
-                if(webView!=null)webView.post(()->toast(error instanceof SecurityException&&error.getMessage()!=null?error.getMessage():"Can't play this video right now"));
+                if(webView!=null)webView.post(()->toast(error instanceof SecurityException?"Sign in again under Settings > Media servers":"Couldn't play this video"));
             }
         });
     }
@@ -602,9 +638,9 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         if (ActivityCompat.checkSelfPermission(getActivity(), "android.permission.RECORD_AUDIO") != 0) {
             if (ActivityCompat.shouldShowRequestPermissionRationale(getActivity(), "android.permission.RECORD_AUDIO")) {
                 AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
-                builder.setTitle("Need Microphone Permission");
-                builder.setMessage("To use voice input feature in your car, you need to grant permissions. With voice input, you can search on Youtube with your voice. \nFor e.g., say 'Coldplay' and it will search for Coldplay on Youtube");
-                builder.setPositiveButton("Grant", new DialogInterface.OnClickListener() {
+                builder.setTitle("Microphone access");
+                builder.setMessage("Allow microphone access for voice search.");
+                builder.setPositiveButton("Allow", new DialogInterface.OnClickListener() {
                     @Override // android.content.DialogInterface.OnClickListener
                     public void onClick(DialogInterface dialogInterface, int i) {
                         dialogInterface.cancel();
@@ -701,10 +737,12 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
                 FragmentTransaction fragmentTransactionBeginTransaction = fragmentManager.beginTransaction();
                 fragmentTransactionBeginTransaction.remove(fragmentFindFragmentByTag);
                 fragmentTransactionBeginTransaction.setCustomAnimations(android.R.animator.fade_in, android.R.animator.fade_out);
+                fragmentTransactionBeginTransaction.runOnCommit(() -> { if (isAdded()) refreshPhoneLibrary(); });
                 fragmentTransactionBeginTransaction.commitAllowingStateLoss();
             }
         }
         this.webView.requestFocus();
+        refreshPhoneLibrary();
     }
 
     // Read on the WebView's network thread
@@ -746,6 +784,54 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         if(getContext()!=null)android.widget.Toast.makeText(getContext(),message,android.widget.Toast.LENGTH_SHORT).show();
     }
 
+    /** A native state covers the failed document, so WebView's URL and internal error text are never shown */
+    private void createPageError() {
+        Context context = requireContext();
+        pageError = new LinearLayout(context);
+        pageError.setOrientation(LinearLayout.VERTICAL);
+        pageError.setGravity(android.view.Gravity.CENTER);
+        int pad = com.sya.tube.car.CarStyle.dp(context, 28);
+        pageError.setPadding(pad, pad, pad, pad);
+        pageError.setBackgroundColor(context.getColor(R.color.tube_background));
+        pageError.setVisibility(View.GONE);
+        TextView title = new TextView(context);
+        title.setText("Couldn't load this page");
+        title.setTextSize(20);
+        title.setTextColor(context.getColor(R.color.tube_on_surface));
+        title.setGravity(android.view.Gravity.CENTER);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        pageError.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        TextView detail = new TextView(context);
+        detail.setText("Check your connection and try again");
+        detail.setTextSize(16);
+        detail.setTextColor(context.getColor(R.color.tube_muted));
+        detail.setGravity(android.view.Gravity.CENTER);
+        detail.setPadding(0, pad / 2, 0, pad);
+        pageError.addView(detail, new LinearLayout.LayoutParams(-1, -2));
+        android.widget.Button retry = new android.widget.Button(context);
+        retry.setText("Retry");
+        retry.setAllCaps(false);
+        retry.setTextColor(context.getColor(R.color.tube_background));
+        retry.setBackgroundTintList(android.content.res.ColorStateList.valueOf(context.getColor(R.color.tube_on_surface)));
+        retry.setMinHeight(com.sya.tube.car.CarStyle.dp(context, 48));
+        retry.setOnClickListener(v -> retryPage());
+        pageError.addView(retry, new LinearLayout.LayoutParams(-2, -2));
+        ((ViewGroup) webView.getParent()).addView(pageError, new android.widget.FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private void retryPage() {
+        if (webView == null || failedPageUrl == null) return;
+        String url = failedPageUrl;
+        hidePageError();
+        webView.loadUrl(url);
+    }
+
+    private void hidePageError() {
+        failedPageUrl = null;
+        if (pageError != null) pageError.setVisibility(View.GONE);
+        if (webView != null) webView.setVisibility(View.VISIBLE);
+    }
+
     private class CustomWebViewClient extends WebViewClient {
         @Override public void doUpdateVisitedHistory(WebView view,String url,boolean reload) {
             super.doUpdateVisitedHistory(view,url,reload);
@@ -771,6 +857,10 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
 
         @Override // android.webkit.WebViewClient
         public boolean shouldOverrideUrlLoading(WebView webView, final String str) {
+            if (com.sya.tube.library.LibraryPages.VIDEO_SETTINGS.equals(str)) {
+                startActivity(new Intent(getContext(), SettingsPhoneActivity.class));
+                return true;
+            }
             if(com.sya.tube.library.LibraryPages.isPlayLink(str)){playLibraryLink(str);return true;}
             if(sendToCar(str))return true;
             if (str.startsWith("file:///") && com.thekirankumar.youtubeauto2.exoplayer.PlayerQueue.isMedia(android.net.Uri.parse(str).getLastPathSegment()==null?"":android.net.Uri.parse(str).getLastPathSegment())) {
@@ -812,7 +902,16 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         @Override // android.webkit.WebViewClient
         public void onPageStarted(WebView webView, String str, Bitmap bitmap) {
             super.onPageStarted(webView, str, bitmap);
+            hidePageError();
             WebViewPhoneFragment.this.progressBar.setVisibility(android.view.View.VISIBLE);
+        }
+
+        @Override public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+            if (!request.isForMainFrame() || pageError == null) return;
+            failedPageUrl = request.getUrl().toString();
+            progressBar.setVisibility(View.GONE);
+            view.setVisibility(View.INVISIBLE);
+            pageError.setVisibility(View.VISIBLE);
         }
 
         @Override // android.webkit.WebViewClient

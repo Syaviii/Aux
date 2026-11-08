@@ -14,16 +14,14 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.DefaultItemAnimator;
 import androidx.recyclerview.widget.RecyclerView;
-import com.thekirankumar.youtubeauto2.exoplayer.PlayerQueue;
 import com.thekirankumar.youtubeauto2.utils.GridAutofitLayoutManager;
-import com.thekirankumar.youtubeauto2.utils.MemoryStorage;
 import java.util.ArrayList;
 import androidx.annotation.Nullable;
 import com.thekirankumar.youtubeauto2.R;
 
 /* JADX INFO: loaded from: classes.dex */
 public class BookmarksFragment extends Fragment implements BookmarksClickCallback {
-    public static final float BOOKMARK_VIEW_SIZE_IN_DP = 180.0f;
+    public static final float BOOKMARK_VIEW_SIZE_IN_DP = 220.0f;
     private ArrayList<Bookmark> bookmarks;
     private BookmarksAdapter adapter;
     private BookmarksClickCallback listener;
@@ -43,7 +41,9 @@ public class BookmarksFragment extends Fragment implements BookmarksClickCallbac
     public void onViewCreated(View view, Bundle bundle) {
         super.onViewCreated(view, bundle);
         Toolbar toolbar = (Toolbar) view.findViewById(R.id.toolbar);
-        toolbar.setNavigationIcon(R.drawable.ic_back);
+        toolbar.setNavigationIcon(R.drawable.tube_ic_back);
+        toolbar.setNavigationContentDescription(R.string.bookmark_back);
+        toolbar.setMinimumHeight((int) TypedValue.applyDimension(1, 56, view.getResources().getDisplayMetrics()));
         toolbar.setNavigationOnClickListener(new View.OnClickListener() {
             @Override // android.view.View.OnClickListener
             public void onClick(View view2) {
@@ -63,7 +63,7 @@ public class BookmarksFragment extends Fragment implements BookmarksClickCallbac
                 return true;
             }
         });
-        this.recyclerView.setLayoutManager(new GridAutofitLayoutManager(getContext(), (int) TypedValue.applyDimension(1, 180.0f, view.getResources().getDisplayMetrics())));
+        this.recyclerView.setLayoutManager(new GridAutofitLayoutManager(getContext(), (int) TypedValue.applyDimension(1, BOOKMARK_VIEW_SIZE_IN_DP, view.getResources().getDisplayMetrics())));
         this.recyclerView.setItemAnimator(new DefaultItemAnimator());
         ArrayList<Bookmark> preburntBookmarks = getPreburntBookmarks();
         preburntBookmarks.addAll(BookmarkStore.get().all());
@@ -96,18 +96,10 @@ public class BookmarksFragment extends Fragment implements BookmarksClickCallbac
     /* JADX INFO: Access modifiers changed from: private */
     public ArrayList<Bookmark> getPreburntBookmarks() {
         ArrayList<Bookmark> arrayList = new ArrayList<>();
-        arrayList.add(new Bookmark("YouTube", R.drawable.youtube_favicon, "https://youtube.com", R.drawable.youtube_bookmark));
-        arrayList.add(new Bookmark("YouTube TV", R.drawable.youtube_favicon, "https://youtube.com/tv", R.drawable.youtube_bookmark));
-        String[] storageDirectories = MemoryStorage.getStorageDirectories(getContext());
-        String sdCardPath = MemoryStorage.getSdCardPath();
-        for (String str : storageDirectories) {
-            if (sdCardPath.startsWith(str)) {
-                arrayList.add(new Bookmark(getString(R.string.internal_storage), 0, PlayerQueue.FILE_PREFIX + str, R.drawable.external_storage));
-            } else {
-                arrayList.add(new Bookmark(getString(R.string.external_storage), 0, PlayerQueue.FILE_PREFIX + str, R.drawable.external_storage));
-            }
-        }
-        arrayList.add(new Bookmark("Plex.tv", 0, "https://app.plex.tv", R.drawable.plex));
+        arrayList.add(new Bookmark("YouTube", 0, "https://youtube.com", R.drawable.bookmark_ic_youtube));
+        arrayList.add(new Bookmark("YouTube TV", 0, "https://youtube.com/tv", R.drawable.bookmark_ic_tv));
+        arrayList.add(new Bookmark(getString(R.string.bookmark_phone_videos), 0, com.sya.tube.library.LibraryPages.PHONE, R.drawable.tube_ic_library));
+        arrayList.add(new Bookmark("Plex", 0, "https://app.plex.tv", R.drawable.bookmark_ic_plex));
         return arrayList;
     }
 

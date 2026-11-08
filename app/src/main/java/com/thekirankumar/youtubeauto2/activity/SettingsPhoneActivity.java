@@ -9,6 +9,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
@@ -21,6 +23,8 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.ViewModel;
+import androidx.lifecycle.ViewModelProvider;
 import com.sya.tube.library.MediaServers;
 import com.sya.tube.library.PhoneVideos;
 import com.sya.tube.library.SubscriptionImport;
@@ -28,11 +32,15 @@ import com.sya.tube.library.Subscriptions;
 import com.sya.tube.player.SponsorBlock;
 import com.sya.tube.settings.Backup;
 import com.sya.tube.settings.SettingsUi;
+import com.sya.tube.settings.SettingsNavigation;
+import com.sya.tube.settings.SettingsNavigation.Frame;
+import com.sya.tube.settings.SettingsNavigation.Kind;
+import com.sya.tube.settings.SettingsNavigation.Request;
 import com.sya.tube.settings.TubePrefs;
 import com.sya.tube.usage.Usage;
 import com.thekirankumar.youtubeauto2.BuildConfig;
 import com.thekirankumar.youtubeauto2.R;
-import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,7 +49,13 @@ import java.util.concurrent.Executors;
 public class SettingsPhoneActivity extends AppCompatActivity {
     private interface Page { String title(); void build(LinearLayout page); }
 
-    private final ArrayDeque<Page> pages = new ArrayDeque<>();
+    /** Kept through rotation without putting passwords or Plex tokens in saved state. */
+    public static final class RetainedSettings extends ViewModel {
+        SettingsNavigation navigation;
+        @Override protected void onCleared() { if (navigation != null) navigation.close(); }
+    }
+
+    private SettingsNavigation navigation;
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private SettingsUi ui;
@@ -50,9 +64,13 @@ public class SettingsPhoneActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> exportFile;
     private ActivityResultLauncher<String[]> importFile, importChannels;
     private Runnable plexPoll;
+    private boolean destroyed, refreshOnResume;
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        RetainedSettings retained = new ViewModelProvider(this).get(RetainedSettings.class);
+        if (retained.navigation == null) retained.navigation = new SettingsNavigation(readPages(saved));
+        navigation = retained.navigation;
         ui = new SettingsUi(this);
         LinearLayout root = ui.column();
         root.setBackgroundColor(getColor(R.color.tube_background));
@@ -80,32 +98,91 @@ public class SettingsPhoneActivity extends AppCompatActivity {
         importChannels = registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::readChannels);
         getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
-                if (pages.size() > 1) { pages.pop(); stopPlexPoll(); render(); return; }
+                rememberScroll();
+                stopPlexPoll();
+                if (navigation.back()) { render(); return; }
                 finish();
             }
         });
-        open(mainPage());
+        render();
     }
 
     @Override protected void onResume() {
         super.onResume();
         // A permission granted in the system dialog or a file picked meanwhile shows up at once
-        if (!pages.isEmpty()) render();
+        if (refreshOnResume && navigation.current().kind != Kind.JELLYFIN && navigation.current().kind != Kind.PLEX) render();
+        refreshOnResume = false;
     }
 
-    @Override protected void onDestroy() { stopPlexPoll(); work.shutdownNow(); super.onDestroy(); }
+    @Override protected void onPause() { rememberScroll(); refreshOnResume = true; super.onPause(); }
 
-    private void open(Page page) { pages.push(page); render(); }
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
+        super.onRequestPermissionsResult(requestCode, permissions, grants);
+        if (requestCode == 10 && navigation.current().kind == Kind.MAIN) render();
+    }
 
-    private Page shownPage;
+    @Override protected void onSaveInstanceState(Bundle out) {
+        rememberScroll();
+        ArrayList<Bundle> savedPages = new ArrayList<>();
+        for (SettingsNavigation.SavedPage page : navigation.snapshot().pages) {
+            Bundle item = new Bundle();
+            item.putString("page", page.kind.name());
+            item.putInt("scroll", page.scrollY);
+            item.putString("address", page.address);
+            item.putString("username", page.username);
+            savedPages.add(item);
+        }
+        out.putParcelableArrayList("settings_pages", savedPages);
+        super.onSaveInstanceState(out);
+    }
+
+    private SettingsNavigation.Snapshot readPages(Bundle saved) {
+        ArrayList<SettingsNavigation.SavedPage> pages = new ArrayList<>();
+        ArrayList<Bundle> items = saved == null ? null : saved.getParcelableArrayList("settings_pages");
+        if (items != null) for (Bundle item : items) {
+            try {
+                pages.add(new SettingsNavigation.SavedPage(Kind.valueOf(item.getString("page", "")), item.getInt("scroll"),
+                    item.getString("address", ""), item.getString("username", "")));
+            } catch (IllegalArgumentException ignored) { return null; }
+        }
+        return new SettingsNavigation.Snapshot(pages);
+    }
+
+    @Override protected void onDestroy() {
+        destroyed = true;
+        navigation.cancelRequests();
+        stopPlexPoll();
+        main.removeCallbacksAndMessages(null);
+        work.shutdownNow();
+        super.onDestroy();
+    }
+
+    private boolean accepts(Request request) { return !destroyed && !isFinishing() && navigation.accepts(request); }
+
+    private void open(Kind kind) { rememberScroll(); stopPlexPoll(); navigation.open(kind); render(); }
+
+    private Page pageFor(Frame frame) {
+        switch (frame.kind) {
+            case SPONSOR: return sponsorPage();
+            case CHANNELS: return channelsPage();
+            case SERVERS: return serversPage();
+            case JELLYFIN: return jellyfinPage(frame);
+            case PLEX: return plexPage(frame);
+            default: return mainPage();
+        }
+    }
+
+    private Frame shownPage;
     private ScrollView shownScroll;
 
+    private void rememberScroll() { if (shownPage != null && shownScroll != null) shownPage.scrollY = shownScroll.getScrollY(); }
+
     private void render() {
-        Page page = pages.peek();
-        if (page == null) return;
+        rememberScroll();
+        Frame frame = navigation.current();
+        Page page = pageFor(frame);
         heading.setText(page.title());
-        // The same page built again keeps its place, a permission dialog or an Unfollow must not jump back to the top
-        int keep = page == shownPage && shownScroll != null ? shownScroll.getScrollY() : 0;
+        int keep = frame.scrollY;
         ScrollView scroll = new ScrollView(this);
         LinearLayout column = ui.column();
         column.setPadding(0, 0, 0, ui.dp(32));
@@ -113,9 +190,20 @@ public class SettingsPhoneActivity extends AppCompatActivity {
         scroll.addView(column);
         content.removeAllViews();
         content.addView(scroll);
-        shownPage = page;
+        shownPage = frame;
         shownScroll = scroll;
-        if (keep > 0) scroll.post(() -> scroll.scrollTo(0, keep));
+        if (keep > 0) scroll.post(() -> { if (shownScroll == scroll) scroll.scrollTo(0, keep); });
+    }
+
+    private void draft(EditText field, String value, java.util.function.Consumer<String> changed) {
+        field.setText(value);
+        field.setSaveEnabled(false);
+        field.setSaveFromParentEnabled(false);
+        field.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+            public void onTextChanged(CharSequence text, int start, int before, int count) { changed.accept(text.toString()); }
+            public void afterTextChanged(Editable text) {}
+        });
     }
 
     private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show(); }
@@ -141,7 +229,7 @@ public class SettingsPhoneActivity extends AppCompatActivity {
                 ui.choice(playback, "Playback speed", "Use this speed for all videos", speedLabels, speedValues, TubePrefs.speedText(TubePrefs.speed(SettingsPhoneActivity.this)),
                     value -> TubePrefs.get(SettingsPhoneActivity.this).edit().putString(TubePrefs.SPEED, value).apply());
                 ui.toggle(playback, "Block ads", "Block and skip YouTube ads", "pref_block_ads", true, null);
-                ui.link(playback, "SponsorBlock", sponsorSummary(), v -> open(sponsorPage()));
+                ui.link(playback, "SponsorBlock", sponsorSummary(), v -> open(Kind.SPONSOR));
                 ui.note(page, "Restart Aux after changing Simpler YouTube pages or Block ads");
 
                 LinearLayout data = ui.section(page, "Video quality");
@@ -149,32 +237,32 @@ public class SettingsPhoneActivity extends AppCompatActivity {
                     TubePrefs.get(SettingsPhoneActivity.this).getString(TubePrefs.QUALITY_MOBILE, "hd720"), value -> TubePrefs.get(SettingsPhoneActivity.this).edit().putString(TubePrefs.QUALITY_MOBILE, value).apply());
                 ui.choice(data, "Wi-Fi", null, new String[]{"Auto", "480p", "720p", "1080p"}, new String[]{"auto", "large", "hd720", "hd1080"},
                     TubePrefs.get(SettingsPhoneActivity.this).getString(TubePrefs.QUALITY_WIFI, "hd720"), value -> TubePrefs.get(SettingsPhoneActivity.this).edit().putString(TubePrefs.QUALITY_WIFI, value).apply());
-                ui.note(page, "Video settings overrides this for one video\n\nBelow 1080p on mobile data, Jellyfin and Plex also reduce quality\n\n"
-                    + (TubePrefs.onMobileData(SettingsPhoneActivity.this) ? "Using mobile data" : "Using Wi-Fi"));
+                ui.note(page, "Change individual videos in Video settings");
 
                 LinearLayout library = ui.section(page, "Library");
                 int channels = Subscriptions.list(SettingsPhoneActivity.this).size();
-                ui.link(library, "Your channels", channels == 0 ? "Follow channels without a Google account" : channels == 1 ? "1 channel" : channels + " channels", v -> open(channelsPage()));
-                if (PhoneVideos.allowed(SettingsPhoneActivity.this)) ui.info(library, "Phone videos", "Browse this phone's videos in the car's Library");
-                else ui.action(library, "Phone videos", "Allow access to play this phone's videos in the car", "Allow", true, v -> requestPermissions(new String[]{PhoneVideos.PERMISSION}, 10));
+                ui.link(library, "Your channels", channels == 0 ? "No channels followed" : channels == 1 ? "1 channel" : channels + " channels", v -> open(Kind.CHANNELS));
+                if (PhoneVideos.limited(SettingsPhoneActivity.this)) ui.action(library, "Phone videos", "Selected videos", "Manage", true, v -> requestPermissions(PhoneVideos.permissions(), 10));
+                else if (PhoneVideos.allowed(SettingsPhoneActivity.this)) ui.info(library, "Phone videos", "Allowed");
+                else ui.action(library, "Phone videos", "Play videos from this phone", "Allow", true, v -> requestPermissions(PhoneVideos.permissions(), 10));
                 List<MediaServers.Server> servers = MediaServers.list(SettingsPhoneActivity.this);
                 StringBuilder names = new StringBuilder();
                 for (MediaServers.Server s : servers) names.append(names.length() == 0 ? "" : ", ").append(s.name);
-                ui.link(library, "Media servers", servers.isEmpty() ? "Play from your Jellyfin or Plex server" : names.toString(), v -> open(serversPage()));
+                ui.link(library, "Media servers", servers.isEmpty() ? "Play from your Jellyfin or Plex server" : names.toString(), v -> open(Kind.SERVERS));
 
                 LinearLayout voice = ui.section(page, "Voice search");
-                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) ui.info(voice, "Microphone", "Allowed for voice search in the car");
-                else ui.action(voice, "Microphone", "Allow access to search by voice in the car", "Allow", true, v -> requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 11));
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) ui.info(voice, "Microphone", "Allowed");
+                else ui.action(voice, "Microphone", "Not allowed", "Allow", true, v -> requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 11));
 
                 LinearLayout backup = ui.section(page, "Backup");
-                ui.link(backup, "Export backup", "Save settings, channels, history, queue, bookmarks and server addresses",
+                ui.link(backup, "Export backup", null,
                     v -> exportFile.launch("Aux backup " + new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date()) + ".json"));
-                ui.link(backup, "Restore backup", "Restore an Aux backup file", v -> importFile.launch(new String[]{"application/json", "application/octet-stream", "text/plain", "*/*"}));
+                ui.link(backup, "Restore backup", null, v -> importFile.launch(new String[]{"application/json", "application/octet-stream", "text/plain", "*/*"}));
 
                 LinearLayout reporting = ui.section(page, "Usage reporting");
                 ui.toggle(reporting, "Share usage", "Help improve Aux with usage and error counts", Usage.ENABLED, true, null);
                 ui.link(reporting, "What gets shared", "Device details, country and car use", v -> reportingDetails());
-                ui.link(reporting, "Vehicle and head unit", "Optional, leave blank if unknown", v -> vehicleDetails());
+                ui.link(reporting, "Vehicle and head unit", "Optional details", v -> vehicleDetails());
 
                 LinearLayout advanced = ui.section(page, "Advanced");
                 ui.toggle(advanced, "Desktop site", "Use YouTube's desktop layout", "pref_enable_desktop_mode", false, null);
@@ -192,20 +280,17 @@ public class SettingsPhoneActivity extends AppCompatActivity {
                 LinearLayout about = ui.section(page, "About");
                 ui.link(about, "Android Auto setup", "Help Aux appear in your car's app list", v -> new AlertDialog.Builder(SettingsPhoneActivity.this).setTitle("Android Auto setup")
                     .setMessage("Allow apps installed outside the Play Store:\n\n1. Open Android Auto settings on your phone\n2. Tap Version repeatedly to unlock developer settings\n"
-                        + "3. Open Developer settings from the menu and enable Unknown sources\n4. Reconnect to your car\n\nIf Aux is still missing, open Aux Setup and tap Fix Aux for Android Auto")
+                        + "3. Open Developer settings from the menu and enable Unknown sources\n4. Reconnect to your car\n\nIf Aux is still missing, open Aux Setup and tap Reinstall")
                     .setPositiveButton(android.R.string.ok, null).show());
                 TextView updates = ui.link(about, "Updates", updateSummary(), v -> checkForUpdate(true));
                 updateRow = updates;
                 ui.info(about, "Version", BuildConfig.VERSION_NAME);
-                ui.link(about, "Source code and license", "GPL 3.0 or later, built on CarStream and NewPipe Extractor", v -> {
-                    String source = com.sya.tube.update.Updates.enabled() ? com.sya.tube.update.Updates.repoPage() : "https://github.com/thekirankumar/carstream-android-auto";
+                ui.link(about, "Created by Syaviii", null, v ->
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Syaviii"))));
+                ui.link(about, "Source code and license", "GPL 3.0 or later", v -> {
+                    String source = com.sya.tube.update.Updates.enabled() ? com.sya.tube.update.Updates.repoPage() : "https://github.com/Syaviii/Aux";
                     startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(source)));
                 });
-                ui.link(about, "Privacy", "Where your data goes", v -> new AlertDialog.Builder(SettingsPhoneActivity.this).setTitle("Privacy")
-                    .setMessage("Aux has no account system\n\nIt connects to:\n\n• YouTube for pages and videos\n"
-                        + "• SponsorBlock to find segments, using part of the video's hashed ID\n• Your Jellyfin or Plex servers, and plex.tv for code sign-in\n"
-                        + "• GitHub for updates\n\nUsage reporting is on by default. It sends a random installation ID, app and Android versions, phone model, country, car use and error counts to reporting.example.invalid. Optional vehicle details are shared if you add them. Turn off Share usage above to stop it.\n\nUsage reports contain no video titles, URLs, watch history or account details. Sign-in details, channels and history stay on this phone. Full diagnostics and crash reports are shared only when you choose to send them")
-                    .setPositiveButton(android.R.string.ok, null).show());
                 if (com.sya.tube.update.Updates.enabled()) checkForUpdate(false);
             }
         };
@@ -213,19 +298,19 @@ public class SettingsPhoneActivity extends AppCompatActivity {
 
     private void reportingDetails() {
         new AlertDialog.Builder(this).setTitle("Usage reporting")
-            .setMessage("Aux sends a small usage report to reporting.example.invalid. It includes a random installation ID, app and Android versions, phone make and model, country, car use and error counts. Vehicle and head unit details are optional.\n\nNo video titles, URLs, watch history, account details, VINs or precise location are included. Country comes from the connection; the service does not store IP addresses.\n\nReports are limited to once an hour. Daily records are kept for 90 days, then only totals remain. Turning Share usage off cancels pending reports and removes this phone's reporting ID. Turning it back on creates a new ID.")
+            .setMessage("App and Android versions, phone model, country, car use and error counts. Vehicle and head unit details are included if you add them.\n\nWatch history is not shared. Turn off Share usage to stop reporting.")
             .setPositiveButton(android.R.string.ok, null).show();
     }
 
     private void vehicleDetails() {
         LinearLayout fields = ui.column();
         LinearLayout card = ui.section(fields, "Optional details");
-        EditText vehicle = ui.field(card, "Vehicle", "Make and model, no VIN", SettingsUi.TEXT);
+        EditText vehicle = ui.field(card, "Vehicle", "Make and model", SettingsUi.TEXT);
         EditText unit = ui.field(card, "Head unit", "Make and model", SettingsUi.TEXT);
         vehicle.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});
         unit.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});
         vehicle.setText(Usage.vehicle(this)); unit.setText(Usage.unit(this));
-        ui.note(fields, "Leave blank if unknown. Shared only while Share usage is on.");
+        ui.note(fields, "Shared when Share usage is on");
         new AlertDialog.Builder(this).setTitle("Vehicle and head unit").setView(fields)
             .setPositiveButton("Save", (dialog, which) -> Usage.setVehicle(this, vehicle.getText().toString(), unit.getText().toString()))
             .setNegativeButton(android.R.string.cancel, null).show();
@@ -276,7 +361,6 @@ public class SettingsPhoneActivity extends AppCompatActivity {
             public void build(LinearLayout page) {
                 LinearLayout card = ui.section(page, "SponsorBlock");
                 ui.toggle(card, "Enable SponsorBlock", "Skip community-marked segments", TubePrefs.SPONSORBLOCK, true, SponsorBlock::forget);
-                ui.note(page, "Aux sends part of the video's hashed ID to find segments without sharing the full video ID");
                 LinearLayout kinds = ui.section(page, "Segment actions");
                 for (String[] segment : TubePrefs.SEGMENTS) {
                     String key = "pref_sb_" + segment[0];
@@ -294,9 +378,9 @@ public class SettingsPhoneActivity extends AppCompatActivity {
         return new Page() {
             public String title() { return "Your channels"; }
             public void build(LinearLayout page) {
-                ui.note(page, "On a channel or video, open the menu and tap Follow channel\n\nFind new videos in Library on your phone or car, no Google account needed");
+                ui.note(page, "Open a channel or video menu and tap Follow channel");
                 ui.button(page, "Import subscriptions", true, v -> importChannels.launch(new String[]{"application/zip", "text/csv", "text/comma-separated-values", "application/json", "text/xml", "application/octet-stream", "*/*"}));
-                ui.note(page, "Import a Google Takeout ZIP or subscriptions.csv, a NewPipe export, or an OPML file");
+                ui.note(page, "Google Takeout ZIP/CSV, NewPipe or OPML");
                 ui.button(page, "Open Google Takeout", false, v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://takeout.google.com/takeout/custom/youtube"))));
                 List<Subscriptions.Channel> channels = Subscriptions.list(SettingsPhoneActivity.this);
                 if (channels.isEmpty()) return;
@@ -320,7 +404,7 @@ public class SettingsPhoneActivity extends AppCompatActivity {
                 if (added > 0) Subscriptions.refresh(this);
                 main.post(() -> {
                     new AlertDialog.Builder(this).setTitle(found.isEmpty() ? "No channels found" : "Subscriptions imported")
-                        .setMessage(found.isEmpty() ? "No YouTube channels in this file, try your Takeout ZIP or subscriptions.csv"
+                        .setMessage(found.isEmpty() ? "No YouTube channels found in this file" : added == 0 ? "Already in your channels"
                             : "Found " + found.size() + (found.size() == 1 ? " channel, added " : " channels, added ") + added + " new")
                         .setPositiveButton(android.R.string.ok, null).show();
                     render();
@@ -344,14 +428,13 @@ public class SettingsPhoneActivity extends AppCompatActivity {
                         ui.action(card, server.name, server.kind() + " / " + Uri.parse(server.url).getHost() + (server.user.isEmpty() ? "" : " / " + server.user), "Remove", false,
                             v -> { MediaServers.remove(SettingsPhoneActivity.this, server.id); render(); });
                 }
-                ui.note(page, "Browse your server in the car's Library, with watch progress synced across devices");
-                ui.button(page, "Add Jellyfin server", true, v -> open(jellyfinPage()));
-                ui.button(page, "Add Plex server", false, v -> open(plexPage()));
+                ui.button(page, "Add Jellyfin server", true, v -> open(Kind.JELLYFIN));
+                ui.button(page, "Add Plex server", false, v -> open(Kind.PLEX));
             }
         };
     }
 
-    private Page jellyfinPage() {
+    private Page jellyfinPage(Frame form) {
         return new Page() {
             public String title() { return "Add Jellyfin"; }
             public void build(LinearLayout page) {
@@ -359,25 +442,33 @@ public class SettingsPhoneActivity extends AppCompatActivity {
                 EditText address = ui.field(card, "Server address", "192.168.1.20:8096", SettingsUi.URL);
                 EditText user = ui.field(card, "Username", "", SettingsUi.TEXT);
                 EditText password = ui.field(card, "Password", "", SettingsUi.PASSWORD);
+                draft(address, form.address, value -> form.address = value);
+                draft(user, form.username, value -> form.username = value);
+                draft(password, form.password, value -> form.password = value);
                 // Saved passwords then belong to the user name, not the server address
                 if (android.os.Build.VERSION.SDK_INT >= 26) {
                     address.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
                     user.setAutofillHints(View.AUTOFILL_HINT_USERNAME);
                     password.setAutofillHints(View.AUTOFILL_HINT_PASSWORD);
                 }
-                ui.note(page, "Away from home, your server needs a public address or VPN\n\nAux doesn't save your password");
+                ui.note(page, "Away from home, use a public server address or VPN");
                 TextView status = ui.note(page, "");
                 ui.button(page, "Sign in", true, v -> {
                     String a = address.getText().toString(), u = user.getText().toString(), p = password.getText().toString();
                     if (a.trim().isEmpty() || u.trim().isEmpty()) { status.setText("Enter a server address and username"); return; }
+                    Request request = navigation.beginRequest();
                     status.setText("Signing in");
                     work.execute(() -> {
                         try {
                             MediaServers.Server server = MediaServers.signInJellyfin(SettingsPhoneActivity.this, a, u.trim(), p);
-                            MediaServers.add(SettingsPhoneActivity.this, server);
-                            main.post(() -> { toast("Signed in to " + server.name); pages.pop(); render(); });
+                            main.post(() -> {
+                                if (!accepts(request)) return;
+                                MediaServers.add(SettingsPhoneActivity.this, server);
+                                toast("Signed in to " + server.name);
+                                navigation.back(); render();
+                            });
                         } catch (Exception error) {
-                            main.post(() -> status.setText(error instanceof SecurityException ? error.getMessage() : "Couldn't reach a Jellyfin server at this address"));
+                            main.post(() -> { if (accepts(request)) status.setText(error instanceof SecurityException ? "Incorrect username or password" : "Couldn't connect to Jellyfin"); });
                         }
                     });
                 });
@@ -385,39 +476,49 @@ public class SettingsPhoneActivity extends AppCompatActivity {
         };
     }
 
-    private Page plexPage() {
+    private Page plexPage(Frame form) {
         return new Page() {
             public String title() { return "Add Plex"; }
             public void build(LinearLayout page) {
                 LinearLayout card = ui.section(page, "Sign in with Plex");
                 TextView code = ui.info(card, "Enter your code at plex.tv/link", "");
                 ui.button(page, "Get a code", true, v -> {
+                    stopPlexPoll();
+                    Request request = navigation.beginRequest();
                     code.setVisibility(View.VISIBLE);
                     code.setText("Getting a code");
                     work.execute(() -> {
                         try {
                             String[] pin = MediaServers.plexPin(SettingsPhoneActivity.this);
-                            main.post(() -> { showPlexCode(code, pin[1]); startPlexPoll(pin[0], code); });
-                        } catch (Exception error) { main.post(() -> code.setText("Couldn't reach Plex, check your connection")); }
+                            main.post(() -> { if (accepts(request)) { showPlexCode(code, pin[1]); startPlexPoll(pin[0], code, request); } });
+                        } catch (Exception error) { main.post(() -> { if (accepts(request)) code.setText("Couldn't reach Plex"); }); }
                     });
                 });
                 ui.button(page, "Open plex.tv/link", false, v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://plex.tv/link"))));
                 LinearLayout direct = ui.section(page, "Connect by address");
                 EditText address = ui.field(direct, "Server address", "192.168.1.20:32400", SettingsUi.URL);
                 EditText token = ui.field(direct, "Plex token (optional)", "", SettingsUi.TEXT);
-                ui.note(page, "You can leave the token blank if your server allows connections from your network without signing in");
+                draft(address, form.address, value -> form.address = value);
+                draft(token, form.token, value -> form.token = value);
+                ui.note(page, "Leave blank if your server allows access without signing in");
                 TextView status = ui.note(page, "");
                 ui.button(page, "Add server", false, v -> {
                     String a = address.getText().toString(), t = token.getText().toString().trim();
                     if (a.trim().isEmpty()) { status.setText("Enter the server address"); return; }
+                    stopPlexPoll();
+                    Request request = navigation.beginRequest();
                     status.setText("Connecting");
                     work.execute(() -> {
                         try {
                             MediaServers.Server server = MediaServers.plexByAddress(SettingsPhoneActivity.this, a, t);
-                            MediaServers.add(SettingsPhoneActivity.this, server);
-                            main.post(() -> { toast("Added " + server.name); pages.pop(); render(); });
+                            main.post(() -> {
+                                if (!accepts(request)) return;
+                                MediaServers.add(SettingsPhoneActivity.this, server);
+                                toast("Added " + server.name);
+                                navigation.back(); render();
+                            });
                         } catch (Exception error) {
-                            main.post(() -> status.setText(error instanceof SecurityException ? error.getMessage() : "Couldn't reach a Plex server at this address"));
+                            main.post(() -> { if (accepts(request)) status.setText(error instanceof SecurityException ? "Sign in with your Plex account" : "Couldn't connect to Plex"); });
                         }
                     });
                 });
@@ -433,28 +534,29 @@ public class SettingsPhoneActivity extends AppCompatActivity {
     }
 
     /** Checks every two seconds for ten minutes whether the code was entered, then adds every server the account can reach */
-    private void startPlexPoll(String pinId, TextView code) {
+    private void startPlexPoll(String pinId, TextView code, Request request) {
         stopPlexPoll();
         long until = System.currentTimeMillis() + 10 * 60_000;
         plexPoll = new Runnable() {
             @Override public void run() {
-                if (plexPoll != this) return;
-                if (System.currentTimeMillis() > until) { code.setText("Code expired, tap Get a code to try again"); code.setTextSize(13); return; }
+                if (plexPoll != this || !accepts(request)) return;
+                if (System.currentTimeMillis() > until) { code.setText("Code expired. Get a new code"); code.setTextSize(13); return; }
                 Runnable self = this;
                 work.execute(() -> {
                     try {
                         String token = MediaServers.plexPinToken(SettingsPhoneActivity.this, pinId);
-                        if (token == null) { main.postDelayed(self, 2000); return; }
-                        main.post(() -> { code.setText("Signed in, finding your servers"); code.setTextSize(15); });
+                        if (token == null) { main.post(() -> { if (accepts(request)) main.postDelayed(self, 2000); }); return; }
+                        main.post(() -> { if (accepts(request)) { code.setText("Signed in, finding your servers"); code.setTextSize(15); } });
                         List<MediaServers.Server> found = MediaServers.plexServers(SettingsPhoneActivity.this, token);
-                        for (MediaServers.Server server : found) MediaServers.add(SettingsPhoneActivity.this, server);
                         main.post(() -> {
+                            if (!accepts(request)) return;
+                            for (MediaServers.Server server : found) MediaServers.add(SettingsPhoneActivity.this, server);
                             plexPoll = null;
-                            if (found.isEmpty()) { code.setText("Signed in, but this phone couldn't reach any of your Plex servers"); return; }
+                            if (found.isEmpty()) { code.setText("Signed in. No reachable Plex servers"); return; }
                             toast(found.size() == 1 ? "Added " + found.get(0).name : "Added " + found.size() + " servers");
-                            pages.pop(); render();
+                            navigation.back(); render();
                         });
-                    } catch (Exception error) { main.postDelayed(self, 4000); }
+                    } catch (Exception error) { main.post(() -> { if (accepts(request)) main.postDelayed(self, 4000); }); }
                 });
             }
         };
@@ -484,7 +586,7 @@ public class SettingsPhoneActivity extends AppCompatActivity {
                 for (int n; (n = in.read(buffer)) > 0; ) { data.write(buffer, 0, n); if (data.size() > 8 << 20) throw new java.io.IOException("Too large"); }
                 String result = Backup.restore(this, data.toString("UTF-8"));
                 main.post(() -> { new AlertDialog.Builder(this).setTitle("Settings restored").setMessage(result).setPositiveButton(android.R.string.ok, null).show(); render(); });
-            } catch (IllegalArgumentException notTube) { main.post(() -> toast(notTube.getMessage()));
+            } catch (IllegalArgumentException notTube) { main.post(() -> toast("This isn't an Aux backup"));
             } catch (Exception error) { main.post(() -> toast("Couldn't read this file")); }
         });
     }

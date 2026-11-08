@@ -6,7 +6,6 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.util.TypedValue;
@@ -21,15 +20,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-/**
- * Android Auto only lists a projection app whose install the system package installer started with the Play Store recorded as
- * the installer, so Setup hands the bundled Aux to the system installer with that attribution.
- * Shell installs may be rejected even when they request the same installer name
- */
+/** Hands the bundled Aux APK to Android's package installer. */
 public class SetupActivity extends Activity {
     static final String TUBE = "dev.syavi.aux";
     private static final String PLAY = "com.android.vending", HAND_OVER = "dev.syavi.aux.setup.INSTALL_UPDATE";
-    private static final String SYSTEM_INSTALLER = "com.google.android.packageinstaller";
     private static final int INSTALL_REQUEST = 1;
     // An update Aux downloaded and handed over, installed instead of the copy inside Setup
     private final Runnable updateChanged = () -> refresh();
@@ -102,31 +96,26 @@ public class SetupActivity extends Activity {
         }
         PackageInfo installed = installed();
         boolean current = installed != null && versionCode(installed) >= bundledVersion();
-        boolean listed = installed != null && carReady();
         boolean mic = installed != null && micGranted();
         steps.removeAllViews();
         View.OnClickListener installAux = v -> install();
         View.OnClickListener allowMic = v -> openTube();
         step(1, "Install Aux", current ? "Version " + installed.versionName : installed == null ? "Not installed" : "Version " + archiveVersion() + " is ready",
             current, installed == null ? "Install" : "Update", installAux);
-        // The record is shown so a phone that still won't list Aux can be checked from a screenshot
-        step(2, "Show it in Android Auto", listed ? "Marked as a Play Store app" : installed == null ? "Done by step 1" : "Reinstalls over it, settings stay\n" + record(),
-            listed, installed == null ? null : "Fix", installAux);
+        step(2, "Open Android Auto", installed == null ? "Install Aux first" : "Look for Aux in your car",
+            false, installed == null ? null : "Reinstall", installAux);
         step(3, "Allow the microphone", "For voice search in the car", mic, installed == null ? null : "Allow", allowMic);
-        if (!getPackageManager().canRequestPackageInstalls() && !(current && listed)) {
+        if (!getPackageManager().canRequestPackageInstalls() && !current) {
             status.setText("Allow Aux Setup to install apps first");
             setAction("Allow installs", installAux);
         } else if (!current) {
-            status.setText(installed == null ? "Three steps to Aux in your car" : "A new version is ready");
+            status.setText(installed == null ? "Install Aux to get started" : "A new version is ready");
             setAction(installed == null ? "Install Aux" : "Update Aux", installAux);
-        } else if (!listed) {
-            status.setText("Android Auto hides Aux until it's installed as a Play Store app");
-            setAction("Fix Aux for Android Auto", installAux);
         } else if (!mic) {
             status.setText("Allow the microphone for voice search");
             setAction("Allow the microphone", allowMic);
         } else {
-            status.setText("All set. Reconnect your car and open Aux");
+            status.setText("Aux is installed");
             setAction("Open Aux", v -> openTube());
         }
         if (UpdateInbox.problem != null) status.setText(UpdateInbox.problem);
@@ -252,7 +241,7 @@ public class SetupActivity extends Activity {
             }
             startActivityForResult(intent, INSTALL_REQUEST);
         } catch (Exception error) {
-            UpdateInbox.problem = "Could not open the system installer. Try again";
+            UpdateInbox.problem = "Couldn't open the installer";
             refresh();
         }
     }
@@ -262,7 +251,7 @@ public class SetupActivity extends Activity {
         if (request != INSTALL_REQUEST) return;
         PackageInfo now = installed();
         if (UpdateInbox.pending != null && now != null && versionCode(now) >= bundledVersion()) { UpdateInbox.pending.delete(); UpdateInbox.pending = null; }
-        if (result == RESULT_CANCELED) UpdateInbox.problem = "Installation cancelled. You can try again";
+        if (result == RESULT_CANCELED) UpdateInbox.problem = "Installation cancelled";
         refresh();
     }
 
@@ -276,28 +265,6 @@ public class SetupActivity extends Activity {
             PackageInfo info = getPackageManager().getPackageArchiveInfo(apkToInstall().getPath(), 0);
             return info == null ? Long.MAX_VALUE : versionCode(info);
         } catch (Exception error) { return Long.MAX_VALUE; }
-    }
-
-    /**
-     * Android Auto's own rule: the package that started the install counts, unless it is the system installer, then the recorded
-     * installer counts, and that has to be the Play Store. An adb install is started by the shell and fails it
-     */
-    private boolean carReady() {
-        if (Build.VERSION.SDK_INT < 30) return PLAY.equals(getPackageManager().getInstallerPackageName(TUBE));
-        try {
-            android.content.pm.InstallSourceInfo source = getPackageManager().getInstallSourceInfo(TUBE);
-            String counted = source.getInitiatingPackageName();
-            if (SYSTEM_INSTALLER.equals(counted)) counted = source.getInstallingPackageName();
-            return PLAY.equals(counted);
-        } catch (PackageManager.NameNotFoundException missing) { return false; }
-    }
-
-    private String record() {
-        if (Build.VERSION.SDK_INT < 30) return "Installer " + getPackageManager().getInstallerPackageName(TUBE);
-        try {
-            android.content.pm.InstallSourceInfo source = getPackageManager().getInstallSourceInfo(TUBE);
-            return "Installer " + source.getInstallingPackageName() + ", started by " + source.getInitiatingPackageName();
-        } catch (PackageManager.NameNotFoundException missing) { return ""; }
     }
 
     private int dp(int value) {

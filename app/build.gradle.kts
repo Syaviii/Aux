@@ -9,7 +9,12 @@ val releaseKey = releaseKeyFile.takeIf { it.exists() }?.let { file -> Properties
 val updateRepo = (findProperty("aux.updateRepo") as String?).orEmpty()
 // Where the release list is read, a test build can point this at a local stand-in for GitHub
 val updateApi = (findProperty("aux.updateApi") as String?) ?: "https://api.github.com"
-val usageEndpoint = (findProperty("aux.usageEndpoint") as String?) ?: ""
+val localBuild = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+val usageEndpoint = providers.gradleProperty("aux.usageEndpoint")
+    .orElse(providers.environmentVariable("AUX_USAGE_ENDPOINT"))
+    .orElse(localBuild.getProperty("aux.usageEndpoint", "")).get()
 
 android {
     namespace = "com.thekirankumar.youtubeauto2"
@@ -18,7 +23,7 @@ android {
         applicationId = "dev.syavi.aux"
         minSdk = 24
         targetSdk = 35
-        versionCode = 42
+        versionCode = 43
         versionName = "1.0.1"
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         buildConfigField("String", "UPDATE_API", "\"$updateApi\"")

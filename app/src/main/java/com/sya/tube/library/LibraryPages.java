@@ -19,6 +19,8 @@ public final class LibraryPages {
     public static final String BASE = "https://" + HOST + "/tube/";
     public static final String HOME = BASE + "library";
     public static final String CHANNELS = BASE + "channels";
+    public static final String PHONE = BASE + "phone";
+    public static final String VIDEO_SETTINGS = BASE + "video-settings";
 
     public static boolean isLibrary(String url) {
         if (url == null) return false;
@@ -41,6 +43,10 @@ public final class LibraryPages {
 
     /** Answers a request for one of Tube's pages or its pictures, null for every other address */
     public static WebResourceResponse intercept(Context context, String url) {
+        return intercept(context, url, false);
+    }
+
+    public static WebResourceResponse intercept(Context context, String url, boolean onPhone) {
         if (!isLibrary(url)) return null;
         Uri uri = Uri.parse(url);
         String path = uri.getPath().substring(6);
@@ -53,13 +59,13 @@ public final class LibraryPages {
                 }
                 case "version": return text("application/json", "{\"v\":" + Subscriptions.version + ",\"busy\":" + Subscriptions.isRefreshing() + "}");
                 case "channels": return html(channels(context, uri.getQueryParameter("c")));
-                case "phone": return html(phone(context, uri.getQueryParameter("f")));
+                case "phone": return html(phone(context, uri.getQueryParameter("f"), onPhone));
                 case "server": return html(server(context, uri.getQueryParameter("s"), uri.getQueryParameter("p")));
                 case "play": return html(page(context, "Aux", "", "<div class=empty>Opening the video</div>"));
                 default: return html(home(context));
             }
         } catch (Exception error) {
-            return html(page(context, "Aux", "", "<div class=empty>" + esc(error.getMessage() == null ? "Something went wrong" : error.getMessage()) + "</div>"));
+            return html(page(context, "Aux", "", "<div class=empty>Couldn't open the library</div>"));
         }
     }
 
@@ -68,15 +74,14 @@ public final class LibraryPages {
         if (PhoneVideos.allowed(context) && !PhoneVideos.list(context, null).isEmpty()) return phone(context, null);
         List<MediaServers.Server> servers = MediaServers.list(context);
         if (!servers.isEmpty()) return server(context, servers.get(0).id, null);
-        return page(context, "Library", "channels", "<div class=empty><b>Your library is empty</b><br>Follow channels, allow phone videos or add a Jellyfin or Plex server in Aux's settings on your phone</div>");
+        return page(context, "Library", "channels", "<div class=empty><b>Your library is empty</b><br>Add channels, phone videos or media servers in Settings</div>");
     }
 
     // Followed channels
 
     private static String channels(Context context, String channelId) {
         List<Subscriptions.Channel> followed = Subscriptions.list(context);
-        if (followed.isEmpty()) return page(context, "Your channels", "channels", "<div class=empty><b>No channels yet</b><br>On your phone, open a channel or one of its videos in Aux, tap the menu and choose Follow channel. "
-            + "You can also bring your YouTube subscriptions over in Aux's settings, no Google account needed</div>");
+        if (followed.isEmpty()) return page(context, "Your channels", "channels", "<div class=empty><b>No channels yet</b><br>Follow a channel from its menu or import subscriptions in Settings</div>");
         StringBuilder body = new StringBuilder("<div class=chips><a class='chip" + (channelId == null ? " on" : "") + "' href='" + CHANNELS + "'>All</a>");
         for (Subscriptions.Channel c : followed) {
             body.append("<a class='chip").append(c.id.equals(channelId) ? " on" : "").append("' href='").append(CHANNELS).append("?c=").append(c.id).append("'>");
@@ -113,9 +118,19 @@ public final class LibraryPages {
     // Phone videos
 
     private static String phone(Context context, String folder) {
-        if (!PhoneVideos.allowed(context)) return page(context, "On this phone", "phone", "<div class=empty><b>Phone videos are off</b><br>Open Aux on your phone, go to Settings and allow Phone videos</div>");
+        return phone(context, folder, false);
+    }
+
+    private static String phone(Context context, String folder, boolean onPhone) {
+        if (!PhoneVideos.allowed(context)) return page(context, "On this phone", "phone", "<div class=empty><b>Phone videos are off</b><br>"
+            + (onPhone ? "Allow video access in Settings<br><a class=action href='" + VIDEO_SETTINGS + "'>Open Settings</a>"
+                : "Open Aux on your phone, go to Settings and allow Phone videos") + "</div>");
         List<PhoneVideos.Video> all = PhoneVideos.list(context, null);
-        if (all.isEmpty()) return page(context, "On this phone", "phone", "<div class=empty>No videos on this phone</div>");
+        if (all.isEmpty()) return page(context, "On this phone", "phone", PhoneVideos.limited(context)
+            ? "<div class=empty><b>No videos selected</b><br>" + (onPhone
+                ? "Choose videos to add to your library<br><a class=action href='" + VIDEO_SETTINGS + "'>Choose videos</a>"
+                : "Choose videos in Aux Settings on your phone") + "</div>"
+            : "<div class=empty>No videos on this phone</div>");
         StringBuilder body = new StringBuilder("<div class=chips><a class='chip" + (folder == null ? " on" : "") + "' href='" + BASE + "phone'>All</a>");
         for (Map.Entry<String, Integer> f : PhoneVideos.folders(all).entrySet())
             body.append("<a class='chip").append(f.getKey().equals(folder) ? " on" : "").append("' href='").append(BASE).append("phone?f=").append(Uri.encode(f.getKey())).append("'>").append(esc(f.getKey())).append("</a>");
@@ -152,9 +167,9 @@ public final class LibraryPages {
                 if (children.isEmpty()) body.append("<div class=empty>Nothing here</div>");
             }
         } catch (SecurityException signedOut) {
-            body.append("<div class=empty><b>").append(esc(server.name)).append(" signed Aux out</b><br>").append(esc(signedOut.getMessage())).append("</div>");
+            body.append("<div class=empty><b>").append(esc(server.name)).append(" requires sign-in</b><br>Sign in again under Settings &gt; Media servers</div>");
         } catch (Exception error) {
-            body.append("<div class=empty><b>Can't reach ").append(esc(server.name)).append("</b><br>Check that the server is on and this phone can reach ").append(esc(Uri.parse(server.url).getHost())).append("</div>");
+            body.append("<div class=empty><b>Can't reach ").append(esc(server.name)).append("</b><br>Check your connection and server</div>");
         }
         return page(context, server.name, "server:" + server.id, body.toString());
     }
@@ -205,6 +220,7 @@ public final class LibraryPages {
         + ".t{font-size:15px;line-height:1.3;margin-top:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}"
         + ".m{font-size:13px;color:#aaa;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
         + ".empty{padding:48px 28px;text-align:center;color:#aaa;font-size:16px;line-height:1.55;max-width:640px;margin:0 auto}.empty b{color:#f1f1f1;font-size:18px}"
+        + ".action{display:inline-flex;align-items:center;justify-content:center;min-height:48px;margin-top:20px;padding:10px 22px;border-radius:24px;background:#f1f1f1;color:#0f0f0f;font-weight:500}"
         + ".fresh{display:none;position:fixed;top:62px;left:50%;transform:translateX(-50%);z-index:4;background:#f1f1f1;color:#0f0f0f;font-weight:500;padding:9px 18px;border-radius:20px}";
 
     private static String page(Context context, String title, String active, String body) {

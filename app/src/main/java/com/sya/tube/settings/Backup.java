@@ -118,7 +118,7 @@ public final class Backup {
             out.append("\n\nSign in again to ");
             for (int i = 0; i < missing.size(); i++) {
                 JSONObject s = missing.get(i);
-                out.append(i == 0 ? "" : i == missing.size() - 1 ? " and " : ", ").append(s.optString("name")).append(" (").append(s.optString("url")).append(")");
+                out.append(i == 0 ? "" : i == missing.size() - 1 ? " and " : ", ").append(s.optString("name"));
             }
             out.append(" under Media servers");
         }

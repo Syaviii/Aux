@@ -36,6 +36,8 @@ public class ExoPlayerFragment extends Fragment implements Player.Listener {
         WebViewCarFragment.AspectRatio getAspectRatio();
         void onNativePlayerControlsVisibilityChange(int visibility);
         default void onNativePlaybackChanged(boolean playing) {}
+        default void onNativePlayWhenReadyChanged(boolean playing) {}
+        default void onNativeSeekPositionChanged(long positionMs) {}
         default void onNativeVideoFailure() {}
         default void onNativeSkip(boolean next) {}
         default void onNativeHandoffReady() {}
@@ -152,8 +154,13 @@ public class ExoPlayerFragment extends Fragment implements Player.Listener {
         // A paused handoff never reports isPlaying, so it is complete as soon as the seek lands
         if(!play)ready.onPlaybackStateChanged(player.getPlaybackState());
     }
-    public long position() { return player==null||player.getPlaybackState()==Player.STATE_IDLE?requireArguments().getLong("position"):player.getCurrentPosition(); }
+    public long position() {
+        // Errors enter IDLE while retaining the media item and its requested seek position.
+        return com.sya.tube.player.CarPlaybackRecovery.nativePosition(player!=null&&player.getMediaItemCount()>0,
+                player==null?0:player.getCurrentPosition(),requireArguments().getLong("position"));
+    }
     public boolean playing() { return player!=null&&player.getPlayWhenReady(); }
+    public boolean requestedPlaying() { return lifecyclePause?resumeOnReturn:playing(); }
     public void toggle() { if(player!=null)player.setPlayWhenReady(!player.getPlayWhenReady()); }
     public void pause() { if(player!=null)player.pause(); }
     public void play() { if(player!=null)player.play(); }
@@ -269,7 +276,7 @@ public class ExoPlayerFragment extends Fragment implements Player.Listener {
             }};view.postDelayed(sample,5000);
         } else if(mediaMode) {
             var items=mediaItems();
-            if(items==null||items.isEmpty()){title.setText("Video unavailable");album.setText("Choose another one");return;}
+            if(items==null||items.isEmpty()){title.setText("Video unavailable");album.setText("");return;}
             var factory=mediaSources();
             for(Bundle item:items)player.addMediaSource(factory.createMediaSource(mediaItem(item,item.getString("uri"))));
             int index=Math.max(0,Math.min(items.size()-1,saved==null?requireArguments().getInt("index"):resumeIndex));
@@ -280,7 +287,7 @@ public class ExoPlayerFragment extends Fragment implements Player.Listener {
             String path=requireArguments().getString("file_path");
             PlayerQueue queue=new PlayerQueue(path);
             for(File file:queue.getCurrentQueue()) player.addMediaItem(MediaItem.fromUri(Uri.fromFile(file)));
-            if(player.getMediaItemCount()==0) { title.setText("Video unavailable"); album.setText("Choose another file"); return; }
+            if(player.getMediaItemCount()==0) { title.setText("Video unavailable"); album.setText(""); return; }
             player.seekTo(saved==null?queue.currentIndex():resumeIndex,resumePosition); player.prepare(); player.setPlayWhenReady(playWhenReady);
         }
         setAspectRatio(listener.getAspectRatio()); updateTitle();
@@ -333,6 +340,12 @@ public class ExoPlayerFragment extends Fragment implements Player.Listener {
         else if(com.thekirankumar.youtubeauto2.webview.PlaybackOwner.isNativeSelected()) BroadcastFromUI.broadCastPaused(getContext(),title.getText().toString());
         listener.onNativePlaybackChanged(playing);
     }
+    @Override public void onPlayWhenReadyChanged(boolean playing,int reason) {
+        if(!lifecyclePause&&listener!=null)listener.onNativePlayWhenReadyChanged(playing);
+    }
+    @Override public void onPositionDiscontinuity(Player.PositionInfo previous,Player.PositionInfo current,int reason) {
+        if(reason==Player.DISCONTINUITY_REASON_SEEK&&listener!=null)listener.onNativeSeekPositionChanged(current.positionMs);
+    }
     // A freeze while driving shows up as buffering after playback had started, its length goes to the diagnostics log
     private long stallStartedAt;
     private boolean everReady;
@@ -369,16 +382,18 @@ public class ExoPlayerFragment extends Fragment implements Player.Listener {
             return;
         }
         if(loading!=null)loading.setVisibility(View.GONE);
-        title.setText("Couldn't play this video"); album.setText(mediaMode?"The server or file isn't available":"Try another file");
+        title.setText("Couldn't play this video"); album.setText("");
     }
     // Switching away from Tube in the car pauses, coming back continues instead of leaving a paused black screen
     private boolean resumeOnReturn;
+    private boolean lifecyclePause;
     @Override public void onPause() {
         if(keepPlayingWhenHidden&&(remoteVideo||mediaMode)&&player!=null&&player.getPlayWhenReady()){playingHidden=true;setVideoDecoding(false);super.onPause();return;}
-        resumeOnReturn=player!=null&&player.getPlayWhenReady(); pause(); super.onPause();
+        resumeOnReturn=player!=null&&player.getPlayWhenReady(); lifecyclePause=true; pause(); super.onPause();
     }
     @Override public void onResume() {
         super.onResume();
+        lifecyclePause=false;
         if(playingHidden){playingHidden=false;setVideoDecoding(true);}
         if(resumeOnReturn&&player!=null)player.play(); resumeOnReturn=false;
     }

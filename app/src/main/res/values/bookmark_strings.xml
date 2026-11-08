@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bookmark_back">Back</string>
+    <string name="bookmark_delete">Delete bookmark %1$s</string>
+    <string name="bookmark_phone_videos">On this phone</string>
+</resources>

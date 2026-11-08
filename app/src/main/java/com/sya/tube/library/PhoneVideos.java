@@ -29,8 +29,21 @@ public final class PhoneVideos {
     /** Android 13 split storage access by kind, videos are asked for on their own */
     public static final String PERMISSION = Build.VERSION.SDK_INT >= 33 ? Manifest.permission.READ_MEDIA_VIDEO : Manifest.permission.READ_EXTERNAL_STORAGE;
 
+    /** Ask for selected-video access explicitly so Android does not use a session-only compatibility grant */
+    public static String[] permissions() {
+        return Build.VERSION.SDK_INT >= 34
+            ? new String[]{Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED}
+            : new String[]{PERMISSION};
+    }
+
     public static boolean allowed(Context context) {
-        return context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED;
+        return context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED || limited(context);
+    }
+
+    public static boolean limited(Context context) {
+        return Build.VERSION.SDK_INT >= 34
+            && context.checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED
+            && context.checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED;
     }
 
     /** Newest first, only one folder when a folder is given */
