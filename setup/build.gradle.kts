@@ -23,8 +23,8 @@ android {
         applicationId = "dev.syavi.aux.setup"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "1.0.1"
+        versionCode = 32
+        versionName = "1.0.2"
     }
     signingConfigs {
         if (releaseKey != null) create("release") {

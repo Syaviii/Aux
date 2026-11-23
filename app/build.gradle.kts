@@ -23,8 +23,8 @@ android {
         applicationId = "dev.syavi.aux"
         minSdk = 24
         targetSdk = 35
-        versionCode = 43
-        versionName = "1.0.1"
+        versionCode = 44
+        versionName = "1.0.2"
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         buildConfigField("String", "UPDATE_API", "\"$updateApi\"")
         buildConfigField("String", "USAGE_ENDPOINT", "\"$usageEndpoint\"")
