@@ -11,6 +11,8 @@ import androidx.webkit.WebViewFeature;
 import androidx.webkit.WebViewStartUpConfig;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Starts WebView work at process start, while Android Auto is still bringing up the car screen.
@@ -20,6 +22,22 @@ public final class WebWarmUp {
     private static final String[] ORIGINS = {"https://m.youtube.com", "https://www.youtube.com", "https://i.ytimg.com", "https://yt3.ggpht.com"};
     private static final Executor BACKGROUND = Executors.newSingleThreadExecutor(r -> new Thread(r, "TubeWebWarmUp"));
     private static boolean started;
+    private static boolean ready;
+    private static final List<Runnable> waiting = new ArrayList<>();
+
+    public static void whenReady(Runnable action) {
+        if (ready) new Handler(Looper.getMainLooper()).post(action);
+        else waiting.add(action);
+    }
+
+    private static void complete(String homeUrl) {
+        warm(homeUrl);
+        ready = true;
+        Handler main = new Handler(Looper.getMainLooper());
+        List<Runnable> actions = new ArrayList<>(waiting);
+        waiting.clear();
+        for (Runnable action : actions) main.post(action);
+    }
 
     public static void start(Context context, String homeUrl) {
         if (started) return;
@@ -29,11 +47,11 @@ public final class WebWarmUp {
         try {
             // Loads Chromium off the main thread so the car activity's WebView constructor does not pay for it
             WebViewCompat.startUpWebView(app, new WebViewStartUpConfig.Builder(BACKGROUND).build(), new androidx.webkit.WebViewOutcomeReceiver<androidx.webkit.WebViewStartUpResult, androidx.webkit.WebViewStartupException>() {
-                @Override public void onResult(androidx.webkit.WebViewStartUpResult result) { main.post(() -> warm(homeUrl)); }
-                @Override public void onError(androidx.webkit.WebViewStartupException error) { main.post(() -> warm(homeUrl)); }
+                @Override public void onResult(androidx.webkit.WebViewStartUpResult result) { main.post(() -> complete(homeUrl)); }
+                @Override public void onError(androidx.webkit.WebViewStartupException error) { main.post(() -> complete(homeUrl)); }
             });
         } catch (Throwable unsupported) {
-            main.post(() -> warm(homeUrl));
+            main.post(() -> complete(homeUrl));
         }
     }
 

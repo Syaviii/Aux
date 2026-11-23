@@ -27,7 +27,9 @@ import okhttp3.Response;
 
 /** A "Continue watching" row of recent videos, shown above YouTube's home feed on the car and on the phone */
 public final class RecentStrip {
-    private static final OkHttpClient http = new OkHttpClient();
+    private static final class ThumbnailsHttp {
+        static final OkHttpClient CLIENT = new OkHttpClient();
+    }
     private static final ExecutorService loader = Executors.newFixedThreadPool(2, r -> new Thread(r, "TubeThumbs"));
     private static final LruCache<String, Bitmap> thumbs = new LruCache<>(24);
     private static final Handler main = new Handler(Looper.getMainLooper());
@@ -122,7 +124,7 @@ public final class RecentStrip {
         if (cached != null) { into.setImageBitmap(cached); return; }
         loader.execute(() -> {
             Request request = new Request.Builder().url("https://i.ytimg.com/vi/" + id + "/mqdefault.jpg").build();
-            try (Response response = http.newCall(request).execute()) {
+            try (Response response = ThumbnailsHttp.CLIENT.newCall(request).execute()) {
                 if (!response.isSuccessful() || response.body() == null) return;
                 Bitmap bitmap = BitmapFactory.decodeStream(response.body().byteStream());
                 if (bitmap == null) return;

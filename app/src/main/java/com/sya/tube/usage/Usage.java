@@ -28,9 +28,11 @@ public final class Usage {
     private final SharedPreferences state, settings;
     private final UsagePolicy policy = new UsagePolicy();
     private final ScheduledThreadPoolExecutor worker = new ScheduledThreadPoolExecutor(1);
-    private final OkHttpClient http = new OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(8, TimeUnit.SECONDS).writeTimeout(8, TimeUnit.SECONDS).callTimeout(12, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build();
+    private static final class ReportingHttp {
+        static final OkHttpClient CLIENT = new OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS).writeTimeout(8, TimeUnit.SECONDS).callTimeout(12, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build();
+    }
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener;
     private ScheduledFuture<?> pending;
     private Call active;
@@ -138,11 +140,22 @@ public final class Usage {
                 || Build.HARDWARE.equals("goldfish") || Build.HARDWARE.equals("ranchu");
     }
     private void report() {
+        synchronized (this) {
+            pending = null;
+            if (!canWork() || active != null) return;
+            long checkNow = System.currentTimeMillis();
+            policy.rollDay(checkNow); policy.projection(projected, checkNow);
+            try {
+                String signature = snapshot().toString();
+                if (!policy.due(checkNow, signature)) { schedule(policy.nextDelay(checkNow, signature)); return; }
+            } catch (Exception invalidConfiguration) { schedule(UsagePolicy.HOUR); return; }
+        }
+        // TLS setup stays on the worker without holding the lock used by the opt-out listener
+        OkHttpClient http = ReportingHttp.CLIENT;
         final Call call;
         final String signature, id;
         final long now = System.currentTimeMillis();
         synchronized (this) {
-            pending = null;
             if (!canWork() || active != null) return;
             policy.rollDay(now); policy.projection(projected, now);
             try {

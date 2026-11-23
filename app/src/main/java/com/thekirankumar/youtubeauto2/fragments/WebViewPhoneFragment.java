@@ -73,6 +73,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
     private static final String BOOKMARKS_FRAGMENT_TAG = "bookmarks";
     private static final String PLAYER_FRAGMENT_TAG = "player";
     private static final String PREFS = "phone_prefs";
+    private static final String PENDING_PAGE = "phone_pending_page";
     private static final int READ_STORAGE_PERMISSION_REQUEST_CODE = 10;
     private final String TAG = "WebViewCarFragment";
     private EditText editText;
@@ -81,6 +82,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
     private ProgressBar progressBar;
     private SharedPreferences sharedPrefs;
     private VideoWebView webView;
+    private com.sya.tube.web.BrowserStartup browserStartup;
     private LinearLayout pageError;
     private String failedPageUrl;
     private boolean phoneVideosAllowed, phoneVideosLimited, refreshPhoneLibrary;
@@ -135,6 +137,8 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         androidx.appcompat.widget.PopupMenu popup = new androidx.appcompat.widget.PopupMenu(requireContext(), anchor);
         popup.inflate(R.menu.phone_menu);
         popup.getMenu().findItem(R.id.back).setEnabled(webView != null && webView.canGoBack());
+        popup.getMenu().findItem(R.id.refresh).setEnabled(webView != null);
+        popup.getMenu().findItem(R.id.bookmark_button).setEnabled(webView != null);
         popup.getMenu().findItem(R.id.follow_channel).setVisible(webView != null && com.sya.tube.library.SubscriptionImport.canFollowFrom(webView.getUrl()));
         popup.setOnMenuItemClickListener(this::onOptionsItemSelected);
         popup.show();
@@ -142,7 +146,11 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
 
     /** Leaves whatever covers the page and opens YouTube's home feed, or scrolls it back to the top when already there */
     private void goHome() {
-        if (webView == null) return;
+        if (webView == null) {
+            editText.setText(""); editText.clearFocus(); hideKeyboard(editText);
+            if (browserStartup != null) browserStartup.navigate(PHONE_HOME_URL);
+            return;
+        }
         if (getChildFragmentManager().findFragmentByTag(PLAYER_FRAGMENT_TAG) != null) hideNativePlayer();
         if (getChildFragmentManager().findFragmentByTag(BOOKMARKS_FRAGMENT_TAG) != null) hideBookmarksScreen();
         if (webView.isVideoFullscreen()) webView.exitFullScreen();
@@ -171,14 +179,16 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
     @Override // androidx.fragment.app.Fragment
     public boolean onOptionsItemSelected(MenuItem menuItem) {
         if (menuItem.getItemId() == R.id.back) {
-            this.webView.goBack();
+            if (webView != null) webView.goBack();
         } else if (menuItem.getItemId() == R.id.refresh) {
-            if (failedPageUrl != null) retryPage();
-            else this.webView.reload();
+            if (webView != null) {
+                if (failedPageUrl != null) retryPage();
+                else webView.reload();
+            }
         } else if (menuItem.getItemId() == R.id.bookmark_button) {
-            showBookmarksScreen();
+            if (webView != null) showBookmarksScreen();
         } else if (menuItem.getItemId() == R.id.library) {
-            webView.loadUrl(com.sya.tube.library.LibraryPages.HOME);
+            if (browserStartup != null) browserStartup.navigate(com.sya.tube.library.LibraryPages.HOME);
         } else if (menuItem.getItemId() == R.id.follow_channel) {
             followChannel();
         } else if (menuItem.getItemId() == R.id.settings) {
@@ -232,13 +242,11 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         recentStrip=new com.sya.tube.remote.RecentStrip(view.findViewById(R.id.recent_strip),item->{
             com.sya.tube.remote.CarRemote.Car car=com.sya.tube.remote.CarRemote.car();
             if(car!=null){car.remotePlay(item.url());toast("Playing on the car");}
-            else if(webView!=null)webView.loadUrl(item.url());
+            else if(browserStartup!=null)browserStartup.navigate(item.url());
         });
         this.progressBar = (ProgressBar) view.findViewById(R.id.progress_bar);
-        this.webView = (VideoWebView) view.findViewById(R.id.web_view);
         phoneVideosAllowed = com.sya.tube.library.PhoneVideos.allowed(requireContext());
         phoneVideosLimited = com.sya.tube.library.PhoneVideos.limited(requireContext());
-        createPageError();
         this.editText = (EditText) view.findViewById(R.id.edittext_url);
         view.findViewById(R.id.home_button).setOnClickListener(v -> goHome());
         view.findViewById(R.id.menu_button).setOnClickListener(this::showMenu);
@@ -255,6 +263,48 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
             hint.setVisibility(View.GONE);
             getSharedPrefs().edit().putBoolean(PREF_CAR_HINT_DISMISSED, true).apply();
         });
+        editText.setOnEditorActionListener((textView, action, event) -> {
+            if (action != 6 && action != 2 && action != 3 && (event == null || event.getKeyCode() != 66)) return false;
+            onDone(editText);
+            hideKeyboard(editText);
+            return true;
+        });
+        browserStartup = new com.sya.tube.web.BrowserStartup(
+            () -> initializeBrowser(view),
+            url -> { webView.loadUrl(url); recentStrip.update(com.sya.tube.remote.RecentStrip.isHome(url)); },
+            this::initialPhonePage);
+        if (bundle != null && bundle.getString(PENDING_PAGE) != null) browserStartup.navigate(bundle.getString(PENDING_PAGE));
+        com.sya.tube.web.WebWarmUp.whenReady(browserStartup::ready);
+        com.sya.tube.web.BrowserStartup startup = browserStartup;
+        view.getViewTreeObserver().addOnDrawListener(new android.view.ViewTreeObserver.OnDrawListener() {
+            private boolean posted;
+            @Override public void onDraw() {
+                if (posted) return;
+                posted = true;
+                view.post(() -> {
+                    if (view.getViewTreeObserver().isAlive()) view.getViewTreeObserver().removeOnDrawListener(this);
+                    startup.frameDrawn();
+                });
+            }
+        });
+    }
+
+    private String initialPhonePage() {
+        com.sya.tube.remote.CarRemote.Car car = com.sya.tube.remote.CarRemote.car();
+        String id = car == null ? null : car.remoteVideoId();
+        if (id != null) {
+            lastCarVideoId = id;
+            return "https://m.youtube.com/watch?v=" + id;
+        }
+        return getSharedPrefs().getString(WebViewCarFragment.HOME_URL, WebViewCarFragment.YOUTUBE_HOME_URL_BASE);
+    }
+
+    private void initializeBrowser(View view) {
+        webView = new VideoWebView(requireContext());
+        webView.setId(R.id.web_view);
+        ((android.widget.FrameLayout) view.findViewById(R.id.web_view_container)).addView(webView,
+            new android.widget.FrameLayout.LayoutParams(-1, -1));
+        createPageError();
         this.webView.addJavascriptInterface(new com.thekirankumar.youtubeauto2.webview.JavascriptCallback(this),"nativecallbacks");
         com.sya.tube.web.WebSegments.attach(this.webView,this);
         final Context appContext=requireContext().getApplicationContext();
@@ -273,8 +323,8 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
             @Override public void handleOnBackPressed() {
                 if(getChildFragmentManager().findFragmentByTag(PLAYER_FRAGMENT_TAG)!=null) { hideNativePlayer(); return; }
                 if(getChildFragmentManager().findFragmentByTag(BOOKMARKS_FRAGMENT_TAG)!=null) { hideBookmarksScreen(); return; }
-                if(webView.isVideoFullscreen()) { webView.exitFullScreen(); return; }
-                if(webView.canGoBack()) { webView.goBack(); return; }
+                if(webView!=null&&webView.isVideoFullscreen()) { webView.exitFullScreen(); return; }
+                if(webView!=null&&webView.canGoBack()) { webView.goBack(); return; }
                 setEnabled(false); requireActivity().getOnBackPressedDispatcher().onBackPressed();
             }
         });
@@ -282,6 +332,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         MediaBrowserCompat mediaBrowserCompat = new MediaBrowserCompat(getActivity(), new ComponentName(getActivity(), (Class<?>) MyMediaBrowserService.class), new MediaBrowserCompat.ConnectionCallback() {
             @Override // android.support.v4.media.MediaBrowserCompat.ConnectionCallback
             public void onConnected() {
+                if (getView() != view || getActivity() == null || mediaBrowser == null) return;
                 try {
                     Log.v("MainActivity", "connected");
                     MediaControllerCompat.setMediaController(WebViewPhoneFragment.this.getActivity(), new MediaControllerCompat(WebViewPhoneFragment.this.getActivity(), WebViewPhoneFragment.this.mediaBrowser.getSessionToken()));
@@ -353,35 +404,8 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
             this.webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
         }
         this.webView.getSettings().setAllowContentAccess(true);
-        this.webView.loadUrl(getSharedPrefs().getString(WebViewCarFragment.HOME_URL, WebViewCarFragment.YOUTUBE_HOME_URL_BASE));
-        this.webView.requestFocus();
-        this.webView.setOnKeyListener(new View.OnKeyListener() {
-            @Override // android.view.View.OnKeyListener
-            public boolean onKey(View view2, int i, KeyEvent keyEvent) {
-                if (keyEvent.getAction() != 0) {
-                    return false;
-                }
-                WebView webView = (WebView) view2;
-                if (i != 4 || !webView.canGoBack()) {
-                    return false;
-                }
-                webView.goBack();
-                return true;
-            }
-        });
-        this.editText.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override // android.widget.TextView.OnEditorActionListener
-            public boolean onEditorAction(TextView textView, int i, KeyEvent keyEvent) {
-                if (i != 6 && i != 2 && i != 3 && (keyEvent == null || keyEvent.getKeyCode() != 66)) {
-                    return false;
-                }
-                WebViewPhoneFragment webViewPhoneFragment = WebViewPhoneFragment.this;
-                webViewPhoneFragment.onDone(webViewPhoneFragment.editText, WebViewPhoneFragment.this.webView);
-                WebViewPhoneFragment webViewPhoneFragment2 = WebViewPhoneFragment.this;
-                webViewPhoneFragment2.hideKeyboard(webViewPhoneFragment2.editText);
-                return true;
-            }
-        });
+        if (!editText.hasFocus()) webView.requestFocus();
+        // Back goes through the activity's back callback, which closes the player and bookmarks before the page history
     }
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -393,14 +417,15 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
     }
 
     /* JADX INFO: Access modifiers changed from: private */
-    public void onDone(EditText editText, VideoEnabledWebView videoEnabledWebView) {
+    private void onDone(EditText editText) {
         String string = editText.getText().toString().trim();
         editText.clearFocus();
         if (string.isEmpty()) return;
         // A pasted link opens as is, anything else is a YouTube search
-        if (URLUtil.isValidUrl(string) && string.contains("://")) { videoEnabledWebView.loadUrl(string); return; }
-        if (!string.contains(" ") && string.matches("[\\w.-]+\\.[a-z]{2,}(/.*)?") && URLUtil.isValidUrl("https://" + string)) { videoEnabledWebView.loadUrl("https://" + string); return; }
-        videoEnabledWebView.loadUrl("https://m.youtube.com/results?search_query=" + Uri.encode(string));
+        if (browserStartup == null) return;
+        if (URLUtil.isValidUrl(string) && string.contains("://")) { browserStartup.navigate(string); return; }
+        if (!string.contains(" ") && string.matches("[\\w.-]+\\.[a-z]{2,}(/.*)?") && URLUtil.isValidUrl("https://" + string)) { browserStartup.navigate("https://" + string); return; }
+        browserStartup.navigate("https://m.youtube.com/results?search_query=" + Uri.encode(string));
     }
 
     // A crash from the last run is offered once, with crash reports turned on, the driver sees the text before sending it
@@ -503,6 +528,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
     @Override // androidx.fragment.app.Fragment
     public void onResume() {
         super.onResume();
+        boolean explicitNavigation = browserStartup != null && browserStartup.resume();
         boolean allowed = com.sya.tube.library.PhoneVideos.allowed(requireContext());
         boolean limited = com.sya.tube.library.PhoneVideos.limited(requireContext());
         refreshPhoneLibrary |= allowed != phoneVideosAllowed || limited != phoneVideosLimited || limited;
@@ -510,23 +536,32 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
         phoneVideosLimited = limited;
         refreshPhoneLibrary();
         updateCarHint();
-        followCar(true);
+        if (!explicitNavigation) followCar(true);
         offerCrashReport();
         offerUpdate();
         if(recentStrip!=null&&webView!=null)recentStrip.update(com.sya.tube.remote.RecentStrip.isHome(webView.getUrl()));
-        this.webView.requestFocus();
+        if (webView != null && !editText.hasFocus()) webView.requestFocus();
         // YouTube needs no phone media or microphone permission. Request optional access only from the menu.
-        WebviewUtils.setDesktopMode(this.webView,PreferenceManager.getDefaultSharedPreferences(requireContext()).getBoolean("pref_enable_desktop_mode",false));
+        if (webView != null) WebviewUtils.setDesktopMode(webView,PreferenceManager.getDefaultSharedPreferences(requireContext()).getBoolean("pref_enable_desktop_mode",false));
     }
 
-    @Override public void onPause() { if(webView!=null) webView.pauseVideo(); android.webkit.CookieManager.getInstance().flush(); super.onPause(); }
+    @Override public void onPause() {
+        if (browserStartup != null) browserStartup.pause();
+        if (webView != null) { webView.pauseVideo(); android.webkit.CookieManager.getInstance().flush(); }
+        super.onPause();
+    }
     @Override public void onDestroyView() {
+        if (browserStartup != null) { browserStartup.close(); browserStartup = null; }
         if(playbackReceiver!=null) { requireContext().unregisterReceiver(playbackReceiver); playbackReceiver=null; }
         if(mediaBrowser!=null) { mediaBrowser.disconnect(); mediaBrowser=null; }
         if(webView!=null) { webView.destroy(); webView=null; }
         pageError = null;
         failedPageUrl = null;
         super.onDestroyView();
+    }
+    @Override public void onSaveInstanceState(Bundle saved) {
+        super.onSaveInstanceState(saved);
+        if (browserStartup != null) saved.putString(PENDING_PAGE, browserStartup.pendingPage());
     }
     @Override public void onVideoElementDiscovered() { if(webView!=null) { webView.attachVideoListeners(); applySegments(); } }
 
@@ -901,12 +936,14 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
 
         @Override // android.webkit.WebViewClient
         public void onPageStarted(WebView webView, String str, Bitmap bitmap) {
+            if (WebViewPhoneFragment.this.webView != webView || getView() == null) return;
             super.onPageStarted(webView, str, bitmap);
             hidePageError();
             WebViewPhoneFragment.this.progressBar.setVisibility(android.view.View.VISIBLE);
         }
 
         @Override public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+            if (WebViewPhoneFragment.this.webView != view || getView() == null) return;
             if (!request.isForMainFrame() || pageError == null) return;
             failedPageUrl = request.getUrl().toString();
             progressBar.setVisibility(View.GONE);
@@ -916,6 +953,7 @@ public class WebViewPhoneFragment extends CarFragment implements BookmarksClickC
 
         @Override // android.webkit.WebViewClient
         public void onPageFinished(WebView webView, String str) {
+            if (WebViewPhoneFragment.this.webView != webView || getView() == null) return;
             showQuery(str);
             WebViewPhoneFragment.this.progressBar.setVisibility(android.view.View.GONE);
             Log.d("WebViewCarFragment", "page finished " + str);

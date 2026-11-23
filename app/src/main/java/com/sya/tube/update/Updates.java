@@ -39,7 +39,9 @@ public final class Updates {
 
     private static final String PREFS = "updates";
     private static final long AUTO_EVERY_MS = TimeUnit.HOURS.toMillis(12);
-    private static final OkHttpClient HTTP = new OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build();
+    private static final class ReleaseHttp {
+        static final OkHttpClient CLIENT = new OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build();
+    }
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(r -> new Thread(r, "AuxUpdates"));
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final String PLAY = "com.android.vending";
@@ -77,7 +79,7 @@ public final class Updates {
             try {
                 Request request = new Request.Builder().url(BuildConfig.UPDATE_API + "/repos/" + BuildConfig.UPDATE_REPO + "/releases/latest")
                     .header("Accept", "application/vnd.github+json").header("User-Agent", "Aux/" + BuildConfig.VERSION_NAME).build();
-                try (Response response = HTTP.newCall(request).execute()) {
+                try (Response response = ReleaseHttp.CLIENT.newCall(request).execute()) {
                     if (!response.isSuccessful() || response.body() == null) throw new java.io.IOException("Release check failed");
                     if (response.isSuccessful() && response.body() != null) {
                         JSONObject release = new JSONObject(response.body().string());
@@ -134,7 +136,7 @@ public final class Updates {
                 File[] old = dir.listFiles();
                 if (old != null) for (File f : old) f.delete();
                 File apk = new File(dir, "Aux-" + release.version + ".apk");
-                try (Response response = HTTP.newCall(new Request.Builder().url(release.apk).header("User-Agent", "Aux/" + BuildConfig.VERSION_NAME).build()).execute()) {
+                try (Response response = ReleaseHttp.CLIENT.newCall(new Request.Builder().url(release.apk).header("User-Agent", "Aux/" + BuildConfig.VERSION_NAME).build()).execute()) {
                     if (!response.isSuccessful() || response.body() == null) throw new java.io.IOException("Download failed (" + response.code() + ")");
                     long total = response.body().contentLength() > 0 ? response.body().contentLength() : release.size;
                     try (InputStream in = response.body().byteStream(); OutputStream out = new FileOutputStream(apk)) {
