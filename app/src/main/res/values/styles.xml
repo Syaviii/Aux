@@ -1,11 +1,4 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="ToolbarButton" parent="@android:style/Widget.ImageButton">
-        <item name="android:minHeight">48dp</item>
-        <item name="android:paddingTop">10dp</item>
-        <item name="android:paddingBottom">10dp</item>
-        <item name="android:paddingLeft">6dp</item>
-        <item name="android:paddingRight">6dp</item>
-    </style>
 
     <!-- Car toolbar buttons, small icons on a dark bar, rotary focus draws its ring through highlighting_drawable -->
     <style name="CarBarButton">

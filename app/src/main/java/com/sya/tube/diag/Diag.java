@@ -30,6 +30,8 @@ public final class Diag {
     private static final ExecutorService WRITER = Executors.newSingleThreadExecutor(r -> new Thread(r, "AuxDiag"));
     private static final SimpleDateFormat CLOCK = new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US);
     private static File file, crashFile;
+    // Only ever the application context, which lives as long as the process
+    @android.annotation.SuppressLint("StaticFieldLeak")
     private static Context app;
 
     public static void init(Context context) {

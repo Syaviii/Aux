@@ -42,6 +42,19 @@ public class MainPhoneActivity extends AppCompatActivity implements ExoPlayerFra
         super.onResume();
     }
 
+    /** A sign-in asked for by the car screen, the phone page opens it */
+    @Override protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+    }
+
+    /** The sign-in page the car asked the phone to open, taken once */
+    public String takeSignInPage() {
+        String page = getIntent() == null ? null : getIntent().getStringExtra(com.sya.tube.web.PhoneSignIn.EXTRA_PAGE);
+        if (page != null) getIntent().removeExtra(com.sya.tube.web.PhoneSignIn.EXTRA_PAGE);
+        return page;
+    }
+
     @Override // android.app.Activity, android.view.KeyEvent.Callback
     public boolean onKeyUp(int i, KeyEvent keyEvent) {
         return super.onKeyUp(i, keyEvent);

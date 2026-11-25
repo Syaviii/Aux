@@ -114,16 +114,26 @@ public final class RecentStrip {
         LinearLayout.LayoutParams place = new LinearLayout.LayoutParams(-2, -2);
         place.setMarginEnd(dp(6));
         card.setLayoutParams(place);
-        thumbnail(item.id, image);
+        thumbnail(item.id, item.picture(), image);
         return card;
     }
 
-    private void thumbnail(String id, ImageView into) {
+    private void thumbnail(String id, String picture, ImageView into) {
         into.setTag(id);
         Bitmap cached = thumbs.get(id);
         if (cached != null) { into.setImageBitmap(cached); return; }
         loader.execute(() -> {
-            Request request = new Request.Builder().url("https://i.ytimg.com/vi/" + id + "/mqdefault.jpg").build();
+            if (picture == null) return;
+            // A frame kept from the video is stored in the list itself
+            if (picture.startsWith("data:")) {
+                byte[] bytes = android.util.Base64.decode(picture.substring(picture.indexOf(',') + 1), android.util.Base64.DEFAULT);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bitmap == null) return;
+                thumbs.put(id, bitmap);
+                main.post(() -> { if (id.equals(into.getTag())) into.setImageBitmap(bitmap); });
+                return;
+            }
+            Request request = new Request.Builder().url(picture).build();
             try (Response response = ThumbnailsHttp.CLIENT.newCall(request).execute()) {
                 if (!response.isSuccessful() || response.body() == null) return;
                 Bitmap bitmap = BitmapFactory.decodeStream(response.body().byteStream());

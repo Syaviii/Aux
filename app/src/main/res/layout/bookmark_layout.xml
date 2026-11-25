@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools"
     android:background="@drawable/highlighting_drawable"
     android:focusable="true"
     android:clickable="true"
@@ -66,5 +66,7 @@
         android:padding="12dp"
         android:focusable="true"
         android:clickable="true"
+        tools:ignore="ContentDescription"
         android:tint="@color/tube_on_surface"/>
+    <!-- The adapter names the bookmark in the delete button's description -->
 </FrameLayout>

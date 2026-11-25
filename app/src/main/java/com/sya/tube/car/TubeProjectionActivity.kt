@@ -68,7 +68,9 @@ class TubeProjectionActivity : com.google.android.gms.car.c(), CarUiHost {
         controller.supportFragmentManager.beginTransaction().replace(R.id.fragment_container, fragment).commitNow()
         controller.dispatchActivityCreated()
         c().decorView.systemUiVisibility = 6150
+        val swipeGuard = com.sya.tube.car.SwipeGuard()
         val previous = c().callback
+        val touchPacer = com.sya.tube.car.TouchPacer { previous.dispatchTouchEvent(it) }
         c().callback = object : Window.Callback by previous {
             override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
                 // Keys must reach the host, Android Auto counts a key the host never sees as an ANR and kills the app
@@ -85,7 +87,8 @@ class TubeProjectionActivity : com.google.android.gms.car.c(), CarUiHost {
                     if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) consumeVideoTouch = false
                     return true
                 }
-                return previous.dispatchTouchEvent(event)
+                val view = c().decorView
+                return swipeGuard.filter(event, view.width, view.height) { touchPacer.dispatch(it) }
             }
         }
         mediaService = com.sya.tube.car.MediaServiceStarter.start(this)

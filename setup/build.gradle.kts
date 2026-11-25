@@ -23,8 +23,8 @@ android {
         applicationId = "dev.syavi.aux.setup"
         minSdk = 26
         targetSdk = 35
-        versionCode = 32
-        versionName = "1.0.2"
+        versionCode = 43
+        versionName = "1.1.0"
     }
     signingConfigs {
         if (releaseKey != null) create("release") {
@@ -45,10 +45,16 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     // The bundled APK is already compressed, storing it avoids recompressing three megabytes for nothing
     androidResources { noCompress += "apk" }
+    lint {
+        // Setup ships in English only, its few status lines sit beside the code that shows them
+        disable += "SetTextI18n"
+        // Library, Gradle and target SDK updates change behaviour, so they are done and tested on their own, not as lint warnings
+        disable += listOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion", "OldTargetApi")
+    }
 }
 
 tasks.named("preBuild") { dependsOn(bundleTube) }
 
 dependencies {
-    implementation("androidx.core:core:1.18.0")
+    implementation(libs.androidx.core)
 }

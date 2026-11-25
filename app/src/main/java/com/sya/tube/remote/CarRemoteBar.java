@@ -26,8 +26,10 @@ public final class CarRemoteBar {
     private final Context context;
     private final int onSurface, muted, accent, surfaceHigh;
     private final TextView title, position, duration, sync;
+    private final LinearLayout settings, qualitySegment, stepper;
     private final ImageButton play, fullscreen;
     private final TextView skipAd, speed;
+    private final View seekFrame, back10, forward10;
     private float shownSpeed = 1f;
     private final android.widget.SeekBar seek;
     private boolean dragging;
@@ -105,6 +107,7 @@ public final class CarRemoteBar {
         });
         // Chapter starts are drawn as small marks over the seek bar, like YouTube's own
         android.widget.FrameLayout seekFrame = new android.widget.FrameLayout(context);
+        this.seekFrame = seekFrame;
         seekFrame.addView(seek, new android.widget.FrameLayout.LayoutParams(-1, -1));
         marks = new ChapterMarks(context, dp(4), dp(4));
         seekFrame.addView(marks, new android.widget.FrameLayout.LayoutParams(-1, -1));
@@ -121,12 +124,14 @@ public final class CarRemoteBar {
 
         LinearLayout transport = row();
         transport.addView(icon(R.drawable.ic_video_previous, "Previous video", dp(48), dp(12), v -> car(c -> c.remoteSkip(false))), weight());
-        transport.addView(jump(R.drawable.tube_ic_replay, "Back 10 seconds", -10_000), weight());
+        back10 = jump(R.drawable.tube_ic_replay, "Back 10 seconds", -10_000);
+        transport.addView(back10, weight());
         play = icon(R.drawable.ic_video_pause, "Play or pause", dp(56), dp(14), v -> car(CarRemote.Car::remoteToggle));
         play.setBackground(ripple(Color.WHITE, dp(28)));
         play.setImageTintList(ColorStateList.valueOf(Color.BLACK));
         transport.addView(play, new LinearLayout.LayoutParams(dp(56), dp(56)));
-        transport.addView(jump(R.drawable.tube_ic_forward, "Forward 10 seconds", 10_000), weight());
+        forward10 = jump(R.drawable.tube_ic_forward, "Forward 10 seconds", 10_000);
+        transport.addView(forward10, weight());
         transport.addView(icon(R.drawable.ic_video_next, "Next video", dp(48), dp(12), v -> car(c -> c.remoteSkip(true))), weight());
         root.addView(transport);
 
@@ -154,7 +159,7 @@ public final class CarRemoteBar {
         root.addView(upNextRow);
         showUpNext();
 
-        LinearLayout settings = row();
+        settings = row();
         settings.setPadding(0, dp(8), 0, dp(4));
         LinearLayout segment = new LinearLayout(context);
         segment.setBackground(rounded(surfaceHigh, dp(18)));
@@ -164,8 +169,9 @@ public final class CarRemoteBar {
             qualities[i] = pill(QUALITY_LABELS[i], false, v -> { showQuality(value); car(c -> c.remoteQuality(value)); });
             segment.addView(qualities[i], new LinearLayout.LayoutParams(0, dp(30), 1));
         }
+        qualitySegment = segment;
         settings.addView(segment, new LinearLayout.LayoutParams(0, dp(36), 1));
-        LinearLayout stepper = new LinearLayout(context);
+        stepper = new LinearLayout(context);
         stepper.setGravity(Gravity.CENTER_VERTICAL);
         stepper.setBackground(rounded(surfaceHigh, dp(18)));
         stepper.addView(step("−", "Audio earlier", -SyncedRenderersFactory.STEP_MS), new LinearLayout.LayoutParams(dp(34), dp(36)));
@@ -198,7 +204,16 @@ public final class CarRemoteBar {
     private void show(CarRemote.State state) {
         String name = state.title == null || state.title.isEmpty() ? "Nothing playing yet" : state.title;
         if (!name.contentEquals(title.getText())) title.setText(name);
-        if (!dragging) {
+        // A live stream has nothing to seek in, the bar becomes a live marker and the skips and speed go
+        seekFrame.setVisibility(state.live ? View.GONE : View.VISIBLE);
+        back10.setVisibility(state.live ? View.INVISIBLE : View.VISIBLE);
+        forward10.setVisibility(state.live ? View.INVISIBLE : View.VISIBLE);
+        speed.setVisibility(state.live ? View.GONE : View.VISIBLE);
+        position.setTextColor(state.live ? accent : muted);
+        if (state.live) {
+            if (!"● LIVE".contentEquals(position.getText())) position.setText("● LIVE");
+            duration.setText("");
+        } else if (!dragging) {
             position.setText(state.ad ? "Ad" : state.durationMs > 0 ? clock(state.positionMs) : "");
             duration.setText(!state.ad && state.durationMs > 0 ? clock(state.durationMs) : "");
             seek.setMax((int) Math.max(0, state.durationMs));
@@ -210,6 +225,10 @@ public final class CarRemoteBar {
         play.setImageResource(state.playing ? R.drawable.ic_video_pause : R.drawable.ic_video_play);
         fullscreen.setImageResource(state.fullscreen ? R.drawable.tube_ic_fullscreen_exit : R.drawable.tube_ic_fullscreen);
         showQuality(state.quality);
+        // Quality is YouTube's and sync is Aux's own player's, a Patreon post has neither
+        qualitySegment.setVisibility(state.quality != null ? View.VISIBLE : View.INVISIBLE);
+        stepper.setVisibility(state.syncable ? View.VISIBLE : View.GONE);
+        settings.setVisibility(state.quality != null || state.syncable ? View.VISIBLE : View.GONE);
         if (Math.abs(state.speed - shownSpeed) > 0.01f) showSpeed(state.speed);
         showChapters(state.positionMs, state.durationMs);
     }

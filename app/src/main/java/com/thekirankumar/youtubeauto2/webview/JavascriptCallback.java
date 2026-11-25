@@ -19,10 +19,26 @@ public class JavascriptCallback {
         void onVideoCurrentTimeResult(int i);
 
         void onVideoElementDiscovered();
+
+        /** A car page asked to sign in on the phone instead, only the car screen acts on it */
+        default void onSignInOnPhone(String page) {}
+
+        /** A video picked from Aux's own card grid on a site, it plays like a pick from the phone */
+        default void onPlayPicked(String url) {}
     }
 
     public JavascriptCallback(JSCallbacks jSCallbacks) {
         this.callbacks = jSCallbacks;
+    }
+
+    @JavascriptInterface
+    public void onPlayPicked(final String url) {
+        handler.post(() -> callbacks.onPlayPicked(url));
+    }
+
+    @JavascriptInterface
+    public void onSignInOnPhone(final String page) {
+        handler.post(() -> callbacks.onSignInOnPhone(page));
     }
 
     @JavascriptInterface

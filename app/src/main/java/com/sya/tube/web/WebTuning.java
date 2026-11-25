@@ -58,9 +58,66 @@ public final class WebTuning {
         + "Object.defineProperty(Document.prototype,'webkitHidden',{get:()=>false,configurable:true});}catch(e){}"
         + "for(const type of ['visibilitychange','webkitvisibilitychange'])document.addEventListener(type,e=>e.stopImmediatePropagation(),true);})();";
 
+    // Twitch's mobile site asks to open its app, on a sheet over the stream and a button in its header, the sheet is
+    // answered with the web choice and the buttons hidden, matched by their words because Twitch's class names change
+    private static final String TWITCH_WEB = "(()=>{if(window.__auxTwitch)return;window.__auxTwitch=true;"
+        + "const tidy=()=>{for(const el of document.querySelectorAll('button,a')){const t=(el.textContent||'').trim();"
+        + "if(/^Open (in )?App$/i.test(t))el.style.display='none';"
+        + "else if(/Keep using web$/i.test(t)&&!el.dataset.auxWeb){el.dataset.auxWeb='1';el.click();}"
+        // The cookie banner covers half the car screen, Proceed closes it with Twitch's default choices
+        + "else if(t==='Proceed'&&!el.dataset.auxWeb){let p=el;for(let i=0;i<8&&p;i++,p=p.parentElement)"
+        + "if(/Cookies and Advertising Choices/.test(p.textContent||'')){el.dataset.auxWeb='1';el.click();break;}}"
+        // The sign-up sheet over the home page, Continue watching closes it
+        + "else if(t==='Continue watching'&&!el.dataset.auxWeb){let p=el;for(let i=0;i<8&&p;i++,p=p.parentElement)"
+        + "if(/Create an account/.test(p.textContent||'')){el.dataset.auxWeb='1';el.click();break;}}}};"
+        // Live chat changes the page many times a second, the check runs at most once a second
+        + "let queued=false;const soon=()=>{if(queued)return;queued=true;setTimeout(()=>{queued=false;tidy();},1000);};"
+        + "const start=()=>{tidy();new MutationObserver(soon).observe(document.body,{childList:true,subtree:true});};"
+        + "if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();";
+
+    // Patreon asks to open its app with a sheet over creator pages and a header button, the web choice is taken
+    private static final String PATREON_WEB = "(()=>{if(window.__auxPatreonWeb)return;window.__auxPatreonWeb=true;"
+        + "const tidy=()=>{for(const el of document.querySelectorAll('button,a')){const t=(el.textContent||'').trim();"
+        + "if(/^Continue in browser$/i.test(t)&&!el.dataset.auxWeb){el.dataset.auxWeb='1';el.click();}"
+        + "else if(/^Open (in )?app$/i.test(t))el.style.setProperty('display','none','important');}};"
+        + "let queued=false;const soon=()=>{if(queued)return;queued=true;setTimeout(()=>{queued=false;tidy();},500);};"
+        + "const start=()=>{tidy();new MutationObserver(soon).observe(document.body,{childList:true,subtree:true});};"
+        + "if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();";
+
+    /** Keeps Twitch on its web page in Aux, on the car and the phone */
+    public static void applyTwitch(WebView webView) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
+            WebViewCompat.addDocumentStartJavaScript(webView, TWITCH_WEB, Collections.singleton("https://*.twitch.tv"));
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
+            WebViewCompat.addDocumentStartJavaScript(webView, PATREON_WEB, Collections.singleton("https://*.patreon.com"));
+    }
+
     public static void applyAlwaysVisible(WebView webView) {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
-            WebViewCompat.addDocumentStartJavaScript(webView, ALWAYS_VISIBLE, Collections.singleton("https://*.youtube.com"));
+            WebViewCompat.addDocumentStartJavaScript(webView, ALWAYS_VISIBLE, new java.util.HashSet<>(java.util.Arrays.asList("https://*.youtube.com", "https://*.twitch.tv")));
+    }
+
+    /**
+     * Lays YouTube, Twitch and Patreon out for the car screen: fuller video grids, each site's account and navigation
+     * buttons moved into one row at the top, and a wide Patreon sign-in page
+     */
+    public static void applyCarLayouts(WebView webView) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
+        addAsset(webView, "car-youtube.js", "https://*.youtube.com");
+        addAsset(webView, "car-twitch.js", "https://*.twitch.tv");
+        addAsset(webView, "car-patreon.js", "https://*.patreon.com");
+    }
+
+    private static void addAsset(WebView webView, String name, String origin) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
+        try (java.io.InputStream in = webView.getContext().getAssets().open(name)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            for (int n; (n = in.read(buffer)) > 0; ) out.write(buffer, 0, n);
+            WebViewCompat.addDocumentStartJavaScript(webView, out.toString("UTF-8"), Collections.singleton(origin));
+        } catch (java.io.IOException missing) {
+            android.util.Log.w("AuxWeb", "missing " + name);
+        }
     }
 
     public static void applyCarClean(WebView webView) {
@@ -72,6 +129,7 @@ public final class WebTuning {
     public static void applyPhone(WebView webView) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
         WebViewCompat.addDocumentStartJavaScript(webView, PHONE_CHROME, Collections.singleton("https://*.youtube.com"));
+        applyTwitch(webView);
         WebViewCompat.addDocumentStartJavaScript(webView, LIGHT_LISTS, Collections.singleton("https://*.youtube.com"));
     }
 
@@ -83,6 +141,7 @@ public final class WebTuning {
     }
 
     public static void apply(WebView webView, boolean preferH264) {
+        applyTwitch(webView);
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(webView, LIGHT_LISTS, Collections.singleton("https://*.youtube.com"));
         }

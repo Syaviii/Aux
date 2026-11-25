@@ -53,10 +53,12 @@ public final class UpNext {
         String id = CarRemote.videoId(url);
         if (id == null) return;
         Context app = context.getApplicationContext();
-        Item item = new Item(id, url, "");
+        Item item = new Item(id, url, Media.isPatreon(id) ? "Patreon post" : Media.isLive(id) ? id.substring(Media.TWITCH.length()) + " on Twitch"
+            : id.startsWith(Media.TWITCH_CLIP) ? "Twitch clip" : Media.isTwitch(id) ? "Twitch video" : "");
         load(app).add(item);
         save(app);
-        VideoTitles.lookup(id, title -> main.post(() -> { item.title = title; save(app); }));
+        // Patreon and Twitch have no public title lookup, the car's page names them once they play
+        if (Media.isYoutube(id)) VideoTitles.lookup(id, title -> main.post(() -> { item.title = title; save(app); }));
     }
 
     /** The next queued video, removed from the queue, or null when it is empty */

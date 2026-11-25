@@ -2,9 +2,9 @@
 
 # Aux
 
-Watch YouTube, follow your favorite channels, and play videos from your phone, Jellyfin or Plex on Android Auto
+Watch YouTube, Twitch and Patreon, follow your favorite channels, and play videos from your phone on Android Auto
 
-Aux is free and open source, with ad blocking and SponsorBlock built in, and you don't need a Google account to watch public YouTube videos
+Aux is free and open source, with ad blocking and SponsorBlock built in, and you don't need a Google account to watch YouTube videos
 
 [Download Aux Setup](https://github.com/Syaviii/Aux/releases/latest)
 
@@ -12,6 +12,9 @@ Aux is free and open source, with ad blocking and SponsorBlock built in, and you
 
 ## What you can do
 
+- Search YouTube, Twitch and Patreon at once from Aux's start page
+- Watch live Twitch streams, past broadcasts and clips
+- Watch videos and podcasts from creators you support on Patreon, after signing in from your phone
 - Follow YouTube channels without signing in, or import your subscriptions from Google Takeout, NewPipe or OPML
 - Play local videos and browse your Jellyfin or Plex library, then resume where you left off
 - Skip sponsors automatically with SponsorBlock, or choose when to skip
@@ -19,6 +22,10 @@ Aux is free and open source, with ad blocking and SponsorBlock built in, and you
 - Pick videos and queue up the next one from your phone while Aux plays on the car screen
 - Control playback from your steering wheel, notification or lock screen
 - Keep audio playing while you use Maps and use data saver on mobile connections
+
+| Start page | Search |
+|---|---|
+| ![Start page](docs/screenshots/car-start.png) | ![Search](docs/screenshots/car-search.png) |
 
 | Your library | Video controls |
 |---|---|
@@ -53,6 +60,8 @@ Owner reports: ✅ Fully working / 🟨 Working with quirks / ❔ Untested
 On the Kia K5, fullscreen's top control bar squeezes the skip buttons and makes them small
 
 \* On the 2021 Ford Edge's vertical screen, fullscreen hides navigation, so navigation and video can't be shown together
+
+Twitch pauses while full-screen Maps covers Aux and picks up again when you switch back
 
 ## License
 

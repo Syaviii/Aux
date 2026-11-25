@@ -23,6 +23,8 @@ import org.json.JSONObject;
 
 public final class Usage {
     public static final String ENABLED = "pref_usage_reports";
+    // Holds only the application context, which lives as long as the process
+    @android.annotation.SuppressLint("StaticFieldLeak")
     private static Usage instance;
     private final Context app;
     private final SharedPreferences state, settings;

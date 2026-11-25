@@ -43,7 +43,7 @@ public class BookmarksFragment extends Fragment implements BookmarksClickCallbac
         Toolbar toolbar = (Toolbar) view.findViewById(R.id.toolbar);
         toolbar.setNavigationIcon(R.drawable.tube_ic_back);
         toolbar.setNavigationContentDescription(R.string.bookmark_back);
-        toolbar.setMinimumHeight((int) TypedValue.applyDimension(1, 56, view.getResources().getDisplayMetrics()));
+        toolbar.setMinimumHeight((int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 56, view.getResources().getDisplayMetrics()));
         toolbar.setNavigationOnClickListener(new View.OnClickListener() {
             @Override // android.view.View.OnClickListener
             public void onClick(View view2) {
@@ -63,7 +63,7 @@ public class BookmarksFragment extends Fragment implements BookmarksClickCallbac
                 return true;
             }
         });
-        this.recyclerView.setLayoutManager(new GridAutofitLayoutManager(getContext(), (int) TypedValue.applyDimension(1, BOOKMARK_VIEW_SIZE_IN_DP, view.getResources().getDisplayMetrics())));
+        this.recyclerView.setLayoutManager(new GridAutofitLayoutManager(getContext(), (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, BOOKMARK_VIEW_SIZE_IN_DP, view.getResources().getDisplayMetrics())));
         this.recyclerView.setItemAnimator(new DefaultItemAnimator());
         ArrayList<Bookmark> preburntBookmarks = getPreburntBookmarks();
         preburntBookmarks.addAll(BookmarkStore.get().all());
@@ -71,7 +71,6 @@ public class BookmarksFragment extends Fragment implements BookmarksClickCallbac
         this.adapter = bookmarksAdapter;
         bookmarksAdapter.setBookmarksClickCallback(this);
         this.recyclerView.setAdapter(bookmarksAdapter);
-        bookmarksAdapter.notifyDataSetChanged();
         this.recyclerView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override // android.view.ViewTreeObserver.OnGlobalLayoutListener
             public void onGlobalLayout() {
@@ -84,6 +83,8 @@ public class BookmarksFragment extends Fragment implements BookmarksClickCallbac
         });
     }
 
+    // The whole list is read again, so every card can have changed
+    @android.annotation.SuppressLint("NotifyDataSetChanged")
     private void refresh() {
         ArrayList<Bookmark> entries=getPreburntBookmarks(); entries.addAll(BookmarkStore.get().all());
         if(adapter!=null) { adapter.setBookmarks(entries); adapter.notifyDataSetChanged(); }

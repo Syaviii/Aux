@@ -58,7 +58,7 @@ public class MyMediaBrowserService extends MediaBrowserServiceCompat {
         MediaSessionCompat mediaSessionCompat = new MediaSessionCompat(this, "youtube");
         this.mediaSessionCompat = mediaSessionCompat;
         mediaSessionCompat.setCallback(new MediaCallBack());
-        this.mediaSessionCompat.setFlags(3);
+        this.mediaSessionCompat.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         setSessionToken(this.mediaSessionCompat.getSessionToken());
         instance = this;
         setup();
@@ -67,7 +67,7 @@ public class MyMediaBrowserService extends MediaBrowserServiceCompat {
     private void setup() {
         PlaybackStateCompat.Builder builder = new PlaybackStateCompat.Builder();
         builder.setActions(getAvailableActions());
-        builder.setState(1, 0L, 1.0f);
+        builder.setState(PlaybackStateCompat.STATE_STOPPED, 0L, 1.0f);
         if (!SettingsUtils.isDisabledNotifications(this)) {
             MediaMetadataCompat.Builder builder2 = new MediaMetadataCompat.Builder();
             builder2.putString(MediaMetadataCompat.METADATA_KEY_TITLE, "Open Aux from the Android Auto app list");

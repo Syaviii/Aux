@@ -21,6 +21,47 @@ public final class LibraryPages {
     public static final String CHANNELS = BASE + "channels";
     public static final String PHONE = BASE + "phone";
     public static final String VIDEO_SETTINGS = BASE + "video-settings";
+    /** The page Aux opens on, with the places to watch from and what to continue */
+    public static final String START = BASE + "start";
+    public static final String PATREON_HOME = "https://www.patreon.com/home";
+    public static final String TWITCH_HOME = "https://m.twitch.tv/";
+    /** One search across YouTube, Twitch and Patreon */
+    public static final String SEARCH = BASE + "search";
+
+    public static String searchUrl(String query) { return SEARCH + "?q=" + Uri.encode(query.trim()); }
+
+    public static boolean isSearchPage(String url) {
+        return isLibrary(url) && "/tube/search".equals(Uri.parse(url).getPath());
+    }
+
+    /** The query of a search results page, null on any other page */
+    public static String searchQuery(String url) {
+        return isSearchPage(url) ? Uri.parse(url).getQueryParameter("q") : null;
+    }
+
+    /** The start page's search bar, each screen opens its own search box */
+    public static boolean isSearchLink(String url) {
+        return isOpenLink(url) && "search".equals(Uri.parse(url).getQueryParameter("to"));
+    }
+
+    /** A start page tile, each screen turns it into its own address with destination */
+    public static boolean isOpenLink(String url) {
+        return isLibrary(url) && "/tube/open".equals(Uri.parse(url).getPath());
+    }
+
+    /** The start page's continue cards, the car opens them at their saved place */
+    public static boolean isContinueLink(String url) {
+        return isLibrary(url) && "/tube/continue".equals(Uri.parse(url).getPath());
+    }
+
+    /** Where a start page tile goes, the car and the phone each use their own YouTube address */
+    public static String destination(String link, boolean onPhone, String youtubeHome) {
+        String to = Uri.parse(link).getQueryParameter("to");
+        if ("patreon".equals(to)) return PATREON_HOME;
+        if ("twitch".equals(to)) return TWITCH_HOME;
+        if ("library".equals(to)) return HOME;
+        return onPhone ? "https://m.youtube.com/" : youtubeHome;
+    }
 
     public static boolean isLibrary(String url) {
         if (url == null) return false;
@@ -62,6 +103,13 @@ public final class LibraryPages {
                 case "phone": return html(phone(context, uri.getQueryParameter("f"), onPhone));
                 case "server": return html(server(context, uri.getQueryParameter("s"), uri.getQueryParameter("p")));
                 case "play": return html(page(context, "Aux", "", "<div class=empty>Opening the video</div>"));
+                case "start": return html(start(context, onPhone));
+                case "search": return html(searchPage(uri.getQueryParameter("q"), onPhone));
+                case "search-results": {
+                    String q = uri.getQueryParameter("q");
+                    return text("text/html", q == null || q.trim().isEmpty() ? "" : UnifiedSearch.html(q));
+                }
+                case "open": case "continue": return html(page(context, "Aux", "", "<div class=empty>Opening</div>"));
                 default: return html(home(context));
             }
         } catch (Exception error) {
@@ -75,6 +123,97 @@ public final class LibraryPages {
         List<MediaServers.Server> servers = MediaServers.list(context);
         if (!servers.isEmpty()) return server(context, servers.get(0).id, null);
         return page(context, "Library", "channels", "<div class=empty><b>Your library is empty</b><br>Add channels, phone videos or media servers in Settings</div>");
+    }
+
+    // The start page
+
+    private static final String[][] PLACES = {
+        {"youtube", "YouTube",
+            "<svg viewBox='0 0 48 48'><rect x='4' y='10' width='40' height='28' rx='9' fill='#f03'/><path d='M20 17v14l12-7z' fill='#fff'/></svg>"},
+        {"patreon", "Patreon",
+            "<svg viewBox='-40 -20 516 516'><path fill='#fff' d='M436 143c-.084-60.778-47.57-110.591-103.285-128.565C263.528-7.884 172.279-4.649 106.214 26.424 26.142 64.089.988 146.596.051 228.883c-.77 67.653 6.004 245.841 106.83 247.11 74.917.948 86.072-95.279 120.737-141.623 24.662-32.972 56.417-42.285 95.507-51.929C390.309 265.865 436.097 213.011 436 143Z'/></svg>"},
+        {"twitch", "Twitch",
+            "<svg viewBox='0 0 48 48'><path d='M9 5 6 13v27h9v5h5l5-5h7l10-10V5z' fill='#9146ff'/><path d='M12 9h26v19l-6 6h-8l-5 5v-5h-7z' fill='#fff'/><path d='M22 15h3v9h-3zM30 15h3v9h-3z' fill='#9146ff'/></svg>"},
+        {"library", "Library",
+            "<svg viewBox='0 0 48 48'><path d='M6 12a4 4 0 0 1 4-4h9l4 5h15a4 4 0 0 1 4 4v19a4 4 0 0 1-4 4H10a4 4 0 0 1-4-4z' fill='#8ab4f8'/><path d='M21 21v11l9-5.5z' fill='#0f0f0f'/></svg>"},
+    };
+
+    private static final String TWITCH_MARK = "<svg viewBox='0 0 48 48'><path d='M12 9h26v19l-6 6h-8l-5 5v-5h-7z' fill='#fff'/><path d='M22 15h3v9h-3zM30 15h3v9h-3z' fill='#9146ff'/></svg>";
+
+    private static final String START_CSS = ".ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#9146ff}.ph svg{width:30%;height:auto}"
+        + ".start{max-width:1100px;margin:0 auto;padding:18px 16px 32px}"
+        + ".places{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:26px}"
+        + ".place{display:flex;align-items:center;justify-content:center;height:104px;border-radius:20px;background:#1f1f1f}.place:focus,.place:active{background:#2c2c2c;box-shadow:0 0 0 3px #fff}"
+        + ".place svg{flex:none;width:58px;height:58px}"
+        + ".start h2{margin:4px 4px 12px}.start .grid{padding:0}";
+
+    private static String start(Context context, boolean onPhone) {
+        StringBuilder body = new StringBuilder("<div class=start>").append(onPhone ? "" : searchBar(null)).append("<div class=places>");
+        for (String[] place : PLACES)
+            body.append("<a class=place aria-label='").append(place[1]).append("' href='").append(BASE).append("open?to=").append(place[0]).append("'>").append(place[2]).append("</a>");
+        body.append("</div>");
+        List<RecentVideos.Item> recent = RecentVideos.list(context);
+        if (!recent.isEmpty()) {
+            body.append("<h2>Continue watching</h2><div class=grid>");
+            int shown = 0;
+            for (RecentVideos.Item item : recent) {
+                if (++shown > 8) break;
+                String source = com.sya.tube.remote.Media.serviceName(item.id);
+                card(body, BASE + "continue?id=" + Uri.encode(item.id), item.picture(),
+                    item.title.isEmpty() ? source + " video" : item.title, source + " · " + clock(item.positionMs) + " of " + clock(item.durationMs), 0, item.progress());
+            }
+            body.append("</div>");
+        }
+        body.append("</div>");
+        return "<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Aux</title><style>" + CSS + START_CSS + SEARCH_CSS + "</style>"
+            + "</head><body data-tube-library=true>" + body + "</body></html>";
+    }
+
+    // Search across every service
+
+    private static final String GLASS = "<svg viewBox='0 0 24 24' width='26' height='26'><path fill='#aaa' d='M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14'/></svg>";
+
+    private static String searchBar(String query) {
+        return "<a class=search href='" + BASE + "open?to=search'>" + GLASS + "<span" + (query == null ? ">Search Aux" : " class=q>" + esc(query)) + "</span></a>";
+    }
+
+    /** A service's small logo, by the name the start page uses for it */
+    static String mark(String service) {
+        for (String[] place : PLACES) if (place[0].equals(service)) return place[2];
+        return "";
+    }
+
+    private static final String SEARCH_CSS = ".search{display:flex;align-items:center;gap:14px;height:60px;padding:0 20px;margin-bottom:14px;border-radius:30px;background:#1f1f1f;color:#aaa;font-size:18px}"
+        + ".search:focus,.search:active{box-shadow:0 0 0 3px #fff}.search .q{color:#f1f1f1}.search svg{flex:none}"
+        + ".results{max-width:1400px;margin:0 auto;padding:14px 0 28px}.results>.search{margin:0 12px 6px}"
+        + ".people{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:0 12px 18px}"
+        + ".person{display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:16px;background:#1f1f1f;min-width:0}.person:focus,.person:active{box-shadow:0 0 0 3px #fff}"
+        + ".av{position:relative;flex:none;width:64px;height:64px;margin:0 8px 8px 0;border-radius:50%;background:#333}.av img{width:64px;height:64px;border-radius:50%;object-fit:cover}.av.live{box-shadow:0 0 0 3px #e91916}"
+        + ".svc{position:absolute;right:-10px;bottom:-10px;width:38px;height:38px;border-radius:50%;background:#0f0f0f;display:flex;align-items:center;justify-content:center}.svc svg{width:28px;height:28px}"
+        + ".pi{min-width:0}.pi b{display:block;font-size:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pi span{display:block;color:#aaa;font-size:14px;margin-top:2px}.pi .on{color:#ff4e45;font-weight:600}"
+        + ".livebadge{position:absolute;left:8px;top:8px;background:#e91916;color:#fff;font-size:12px;font-weight:700;padding:2px 6px;border-radius:4px}"
+        + ".svcm{position:absolute;left:8px;bottom:8px;width:46px;height:46px;border-radius:12px;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center}.svcm svg{width:34px;height:34px}"
+        + ".nopic svg{width:56px;height:56px}"
+        + ".wait{padding:48px 28px;text-align:center;color:#aaa;font-size:16px}";
+
+    /** The phone has its own search field up top, the car's page carries the bar */
+    private static String searchPage(String query, boolean onPhone) {
+        String q = query == null ? "" : query.trim();
+        String js = "<script>(function(){var box=document.getElementById('found');"
+            + "fetch('" + BASE + "search-results?q='+encodeURIComponent(" + jsString(q) + ")).then(function(r){return r.text();})"
+            + ".then(function(h){box.innerHTML=h;}).catch(function(){box.innerHTML=\"<div class=empty><b>Couldn't search right now</b><br>Check the phone's connection and try again</div>\";});})();</script>";
+        return "<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>" + esc(q.isEmpty() ? "Search" : q) + "</title><style>" + CSS + SEARCH_CSS + "</style>"
+            + "</head><body data-tube-library=true><div class=results>" + (onPhone ? "" : searchBar(q.isEmpty() ? null : q))
+            + "<div id=found>" + (q.isEmpty() ? "" : "<div class=wait>Searching</div>") + "</div></div>" + (q.isEmpty() ? "" : js) + "</body></html>";
+    }
+
+    private static String jsString(String value) {
+        StringBuilder out = new StringBuilder("'");
+        for (char c : value.toCharArray()) {
+            if (c < 0x20 || c == '\\' || c == '\'' || c == '<' || c == '>' || c == '&' || c > 0x7e) out.append(String.format(java.util.Locale.US, "\\u%04x", (int) c));
+            else out.append(c);
+        }
+        return out.append("'").toString();
     }
 
     // Followed channels
@@ -191,6 +330,8 @@ public final class LibraryPages {
     private static void card(StringBuilder out, String href, String image, String title, String meta, long durationMs, float progress) {
         out.append("<a class=card href='").append(esc(href)).append("'><div class=thumb>");
         if (image != null) out.append("<img loading=lazy src='").append(esc(image)).append("' alt='' onerror=\"this.style.display='none'\">");
+        // A Twitch broadcast or clip before a frame was kept from it shows Twitch's mark instead of an empty box
+        else if (href.contains("continue?id=twitch")) out.append("<div class=ph>").append(TWITCH_MARK).append("</div>");
         if (durationMs > 0) out.append("<span class=dur>").append(clock(durationMs)).append("</span>");
         if (progress > 0.01f) out.append("<div class=track></div><div class=bar style='width:").append(Math.max(3, (int) (progress * 100))).append("%'></div>");
         out.append("</div><div class=t>").append(esc(title)).append("</div>");

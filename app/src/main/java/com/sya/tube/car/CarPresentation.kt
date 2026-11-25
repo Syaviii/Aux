@@ -66,8 +66,11 @@ class CarPresentation(context: Context, display: Display) : Presentation(context
             if(event.action==MotionEvent.ACTION_UP || event.action==MotionEvent.ACTION_CANCEL) consumeVideoTouch=false
             return true
         }
-        return super.dispatchTouchEvent(event)
+        val view = window?.decorView
+        return swipeGuard.filter(event, view?.width ?: 0, view?.height ?: 0) { touchPacer.dispatch(it) }
     }
+    private val swipeGuard = SwipeGuard()
+    private val touchPacer = TouchPacer { super.dispatchTouchEvent(it) }
     fun destroyHost() {
         if(destroyed) return
         destroyed=true

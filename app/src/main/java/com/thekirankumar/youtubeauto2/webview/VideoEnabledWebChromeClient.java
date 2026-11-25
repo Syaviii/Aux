@@ -225,11 +225,14 @@ public class VideoEnabledWebChromeClient extends WebChromeClient implements Medi
         return true;
     }
 
+    /** "Continue with Google" and similar sign-in buttons open a window that reports back to this page */
+    @Override public boolean onCreateWindow(android.webkit.WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) {
+        return com.sya.tube.web.SignInWindows.open(view, resultMsg);
+    }
+
     @Override // android.webkit.WebChromeClient
     public void onPermissionRequest(PermissionRequest permissionRequest) {
-        if (Build.VERSION.SDK_INT >= 21) {
-            permissionRequest.grant(permissionRequest.getResources());
-        }
+        permissionRequest.grant(permissionRequest.getResources());
     }
 
     @Override // android.webkit.WebChromeClient

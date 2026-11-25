@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="Overdraw"
     android:id="@+id/root_layout"
     android:background="@color/tube_background"
     android:layout_width="match_parent"
@@ -17,14 +19,6 @@
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
-            <com.github.zagum.speechrecognitionview.RecognitionProgressView
-                android:layout_gravity="center"
-                android:id="@+id/speech_view"
-                android:background="@color/tube_background"
-                android:padding="20dp"
-                android:visibility="gone"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"/>
             <!-- Page tools on the left, the playing video's controls grouped in the middle, view controls on the right -->
             <LinearLayout
                 android:gravity="center_vertical"
@@ -38,45 +32,39 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
                 <ImageButton
-                    android:id="@+id/home_button"
-                    android:contentDescription="YouTube home"
-                    android:src="@drawable/tube_ic_home"
+                    android:id="@+id/aux_menu_button"
+                    android:contentDescription="Aux menu"
+                    android:src="@drawable/tube_ic_aux"
+                    android:padding="6.5dp"
                     android:nextFocusLeft="@+id/native_video_settings"
+                    android:nextFocusRight="@+id/home_button"
+                    style="@style/CarBarButton"/>
+                <ImageButton
+                    android:id="@+id/home_button"
+                    android:contentDescription="Home"
+                    android:src="@drawable/tube_ic_home"
+                    android:nextFocusLeft="@id/aux_menu_button"
                     android:nextFocusRight="@+id/search_youtube_button"
                     style="@style/CarBarButton"/>
                 <ImageButton
                     android:id="@+id/search_youtube_button"
-                    android:contentDescription="Search YouTube"
+                    android:contentDescription="Search"
                     android:src="@drawable/tube_ic_search"
                     android:nextFocusLeft="@id/home_button"
-                    android:nextFocusRight="@+id/voice_button"
-                    style="@style/CarBarButton"/>
-                <ImageButton
-                    android:id="@+id/voice_button"
-                    android:contentDescription="Voice search"
-                    android:src="@drawable/tube_ic_mic"
-                    android:nextFocusLeft="@id/search_youtube_button"
                     android:nextFocusRight="@+id/bookmark_button"
                     style="@style/CarBarButton"/>
                 <ImageButton
                     android:id="@+id/bookmark_button"
                     android:contentDescription="Bookmarks"
                     android:src="@drawable/tube_ic_bookmarks"
-                    android:nextFocusLeft="@id/voice_button"
-                    android:nextFocusRight="@+id/library_button"
-                    style="@style/CarBarButton"/>
-                <ImageButton
-                    android:id="@+id/library_button"
-                    android:contentDescription="Library"
-                    android:src="@drawable/tube_ic_library"
-                    android:nextFocusLeft="@id/bookmark_button"
+                    android:nextFocusLeft="@id/search_youtube_button"
                     android:nextFocusRight="@+id/refresh_button"
                     style="@style/CarBarButton"/>
                 <ImageButton
                     android:id="@+id/refresh_button"
                     android:contentDescription="Refresh page"
                     android:src="@drawable/tube_ic_refresh"
-                    android:nextFocusLeft="@id/library_button"
+                    android:nextFocusLeft="@id/bookmark_button"
                     android:nextFocusRight="@+id/native_previous_video"
                     style="@style/CarBarButton"/>
                 <ImageView
@@ -135,8 +123,38 @@
                     android:contentDescription="Video settings"
                     android:src="@drawable/tube_ic_tune"
                     android:nextFocusLeft="@id/fullscreen_button"
-                    android:nextFocusRight="@id/home_button"
+                    android:nextFocusRight="@id/aux_menu_button"
                     style="@style/CarBarButton"/>
+            </LinearLayout>
+            <!-- Voice search listens over the toolbar, the keyboard button switches to typing the search instead -->
+            <LinearLayout
+                android:id="@+id/voice_panel"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@color/tube_background"
+                android:clickable="true"
+                tools:ignore="KeyboardInaccessibleWidget"
+                android:visibility="gone"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+                <com.github.zagum.speechrecognitionview.RecognitionProgressView
+                    android:id="@+id/speech_view"
+                    android:contentDescription="Listening, tap to stop"
+                    android:padding="6dp"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"/>
+                <ImageButton
+                    android:id="@+id/type_search_button"
+                    android:contentDescription="Type instead"
+                    android:src="@drawable/tube_ic_keyboard"
+                    android:layout_width="96dp"
+                    android:layout_height="46dp"
+                    android:layout_marginEnd="8dp"
+                    android:padding="10dp"
+                    android:scaleType="fitCenter"
+                    android:background="@drawable/highlighting_drawable"
+                    android:tint="@color/tube_on_surface"/>
             </LinearLayout>
         </FrameLayout>
         <LinearLayout
@@ -154,7 +172,7 @@
                 android:id="@+id/web_view"
                 android:focusable="true"
                 android:focusableInTouchMode="true"
-                android:nextFocusUp="@+id/voice_button"
+                android:nextFocusUp="@+id/search_youtube_button"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"/>
             <!-- A thin line at the very top of the page, the negative margin trims the bar's built in padding -->
@@ -177,10 +195,11 @@
     </LinearLayout>
     <LinearLayout
         android:gravity="center_vertical|end"
-        android:layout_gravity="right"
+        android:layout_gravity="end"
         android:orientation="vertical"
         android:id="@+id/fullscreen_corner_controls"
         android:visibility="gone"
+        android:paddingStart="0dp"
         android:paddingEnd="8dp"
         android:layout_width="wrap_content"
         android:layout_height="match_parent">

@@ -21,9 +21,9 @@
     </queries>
     <!-- The legacy SDK advertises media but routes playback through its projection service. -->
     <application android:name=".application.MyApplication" android:theme="@style/Theme.AppCompat"
-        tools:ignore="MissingMediaBrowserServiceIntentFilter"
+        tools:ignore="MissingMediaBrowserServiceIntentFilter,MissingIntentFilterForMediaSearch"
         android:label="@string/app_name" android:icon="@mipmap/ic_aux_launcher" android:roundIcon="@mipmap/ic_aux_launcher"
-        android:allowBackup="false" android:hardwareAccelerated="true"
+        android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="false" android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true">
         <activity android:name=".activity.MainPhoneActivity" android:exported="true" android:theme="@style/Theme.Tube"
             android:configChanges="orientation|screenSize|keyboardHidden">
@@ -33,7 +33,8 @@
         <activity android:name=".activity.MainCarActivity" android:exported="true" android:theme="@style/Theme.AppCompat.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode" android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.car" android:launchMode="singleTask" />
-        <service android:name="com.sya.tube.video.car.AuxProjectionService" android:exported="true" android:label="Aux" android:icon="@drawable/ic_aux">
+        <!-- Android Auto binds this from its own app, so it is exported without a permission like every projection app -->
+        <service android:name="com.sya.tube.video.car.AuxProjectionService" android:exported="true" android:label="Aux" android:icon="@drawable/ic_aux" tools:ignore="ExportedService">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <action android:name="android.intent.action.VIEW" />

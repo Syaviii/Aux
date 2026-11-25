@@ -82,7 +82,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 
 /* JADX INFO: loaded from: classes.dex */
-public class WebViewCarFragment extends CarFragment implements MainCarActivity.ActivityCallbacks, JavascriptCallback.JSCallbacks, SafetyWarningFragment.FragmentInteractionListener, BookmarksClickCallback, ExoPlayerFragment.OnFragmentInteractionListener, com.sya.tube.remote.CarRemote.Car, com.sya.tube.web.WebSegments.Listener {
+public class WebViewCarFragment extends CarFragment implements MainCarActivity.ActivityCallbacks, JavascriptCallback.JSCallbacks, BookmarksClickCallback, ExoPlayerFragment.OnFragmentInteractionListener, com.sya.tube.remote.CarRemote.Car, com.sya.tube.web.WebSegments.Listener {
     private static final String ASPECT_RATIO_KEY = "aspect_ratio";
     public static final int AUTOSUGGEST_DEBOUNCE_DELAY_MILLIS = 500;
     public static final String BOOKMARKS_FRAGMENT_TAG = "bookmarks";
@@ -91,11 +91,10 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     public static final String GOOGLE_SEARCH_URL_BASE = "https://www.google.com/search?q=";
     public static final String HOME_URL = "home_url";
     private static final String RESUME_VIDEO = "resume_video", RESUME_POSITION = "resume_position",
-            RESUME_PLAYING = "resume_playing", RESUME_FULLSCREEN = "resume_fullscreen";
+            RESUME_PLAYING = "resume_playing", RESUME_FULLSCREEN = "resume_fullscreen", RESUME_AT = "resume_at", LAST_SERVICE = "last_service";
     public static final String JAVASCRIPT_INTERFACE = "nativecallbacks";
     private static final String PLAYER_FRAGMENT_TAG = "player";
     public static final String PREFS = "car";
-    public static final String SAFETY_WARNING_FRAGMENT_TAG = "safety";
     private static final String TAG = "WebViewCarFragment";
     public static final String YOUTUBE_AUTOSUGGEST_URL_BASE = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=";
     public static final String YOUTUBE_HOME_URL_BASE = "https://www.youtube.com";
@@ -112,7 +111,6 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     private CarEditText fakeEditText;
     private Handler handler;
     private HandlerThread handlerThread;
-    private boolean isParkingEngaged;
     private MediaBrowserCompat mediaBrowser;
     private MediaControllerCompat mediaController;
     private MediaSessionCompat mediaSessionCompat;
@@ -144,6 +142,8 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     private volatile boolean blockAds=true;
     // A video sent from the phone always goes fullscreen, even with auto fullscreen turned off
     private String remoteFullscreenId;
+    // The Patreon post this screen already started, its player waits for a tap that the car never sends
+    private String patreonStartedKey;
     // YouTube marks the player while an ad plays, the native player has no ads so it must only take over the real video
     private static final String AD_SELECTOR=".ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-ad-skip-button-container button,[class*=\"skip-ad\"] button,button[class*=\"skip-ad\"],button[class*=\"ad-skip\"]";
     private static final String AD_STATE_JS="(()=>{let p=document.querySelector('#movie_player,.html5-video-player');let ad=!!(p&&(p.classList.contains('ad-showing')||p.classList.contains('ad-interrupting')));let s=ad?document.querySelector('"+AD_SELECTOR+"'):null;let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');return {ad:ad,playing:!!(v&&!v.paused),skip:!!(s&&!s.disabled&&!s.closest('[style*=\"display: none\"],[hidden]'))}})()";
@@ -157,7 +157,6 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     private SpeechRecognizer speechRecognizer;
     private Intent speechRecognizerIntent;
     private View toolbar;
-    private boolean warningScreenOpen;
     private VideoWebView webView;
     private BroadcastReceiver playbackReceiver;
     private boolean isSearchShown = false;
@@ -171,7 +170,6 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         }
     };
     private boolean isNightMode = true;
-    private boolean warningAccepted = true;
     private Runnable cornerControlsHideRunnable = new Runnable() {
         @Override // java.lang.Runnable
         public void run() {
@@ -206,7 +204,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         if(!PlaybackOwner.isActive(webView)){debugStage("jsVideo inactive");return;}
         String title=webView.getTitle();
         if("playing".equals(str)) {
-            if(restoringPage&&playbackRecovery.pending(watchVideoId())!=null){restorePendingPlayback();return;}
+            if(restoringPage&&playbackRecovery.pending(pageKey())!=null){restorePendingPlayback();return;}
             releaseResumePause();
             showPlaybackFeedback(com.sya.tube.player.CarPlaybackRecovery.Feedback.NONE);
             setPlaybackControls(true,true);
@@ -217,8 +215,9 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
             playerState=android.media.session.PlaybackState.STATE_PLAYING;
             com.thekirankumar.youtubeauto2.utils.BroadcastFromUI.broadCastPlaying(getContext(),title);
         } else if("pause".equals(str)||"ended".equals(str)) {
-            if(!lifecyclePaused&&!restoringPage&&playbackRecovery.pending(watchVideoId())==null){
-                writeResumePoint(watchVideoId(),currentResumePosition(),false);
+            // A page that pauses itself behind another app was not paused by the driver, coming back continues it
+            if(!lifecyclePaused&&!backgroundAudio&&!restoringPage&&playbackRecovery.pending(pageKey())==null){
+                writeResumePoint(pageKey(),currentResumePosition(),false);
                 showPlaybackFeedback(com.sya.tube.player.CarPlaybackRecovery.Feedback.NONE);
             }
             setPlaybackControls(true,false);
@@ -285,7 +284,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     public void onViewCreated(final View view, Bundle bundle) {
         super.onViewCreated(view, bundle);
         com.sya.tube.remote.CarRemote.attach(this);
-        recentStrip=new com.sya.tube.remote.RecentStrip(view.findViewById(R.id.recent_strip),item->{if(webView==null)return;remoteFullscreenId=item.id;webView.loadUrl(item.url());});
+        recentStrip=new com.sya.tube.remote.RecentStrip(view.findViewById(R.id.recent_strip),item->openAt(item.id,item.positionMs));
         ExoPlayerFragment.keepPlayingWhenHidden=keepAudioWhenHidden();
         startCallWatch();
         startOnlineWatch();
@@ -301,6 +300,9 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
             if(com.thekirankumar.youtubeauto2.BuildConfig.DEBUG) Log.i("TubeControls","Settings clicked");
             // Over native playback the panel opens on top of the video, so audio sync can be tuned while watching
             if(nativePlayerActive){showQualityChoices();return;}
+            // Patreon and Twitch players pick their own quality, their settings are the rest of the panel
+            String settingsKey=pageKey();
+            if(settingsKey!=null&&!com.sya.tube.remote.Media.isYoutube(settingsKey)){showQualityChoices(false);return;}
             boolean returning=nativePlayerActive;
             if(returning)leaveNativeVideo(true);
             if(webView.isVideoFullscreen()) webView.exitFullScreen();
@@ -314,22 +316,22 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         this.fakeEditText = carEditText;
         setupEditTextMirroring(carEditText);
         final SearchController searchController = mainCarActivity.getSearchController();
-        this.webView.addJavascriptInterface(new JavascriptCallback(this), JAVASCRIPT_INTERFACE);
+        JavascriptCallback pageCallbacks=new JavascriptCallback(this);
+        this.webView.addJavascriptInterface(pageCallbacks, JAVASCRIPT_INTERFACE);
+        this.webView.pageCallbacks=pageCallbacks;
         com.sya.tube.web.WebSegments.attach(this.webView,this);
         final Context appContext=requireContext().getApplicationContext();
-        view.findViewById(R.id.library_button).setOnClickListener(v->{
-            if(nativeHandoffPending)cancelNativeHandoff();
-            if(nativePlayerActive)leaveNativeVideo(false);
-            if(webView.isVideoFullscreen())webView.exitFullScreen();
-            webView.loadUrl(com.sya.tube.library.LibraryPages.HOME);
+        view.findViewById(R.id.aux_menu_button).setOnClickListener(v->{
+            prepareForNewPage();
+            webView.loadUrl(com.sya.tube.library.LibraryPages.START);
         });
         mainCarActivity.getCarWindow().setVolumeControlStream(3);
         ImageButton imageButton = (ImageButton) view.findViewById(R.id.home_button);
         imageButton.setOnClickListener(new View.OnClickListener() {
             @Override // android.view.View.OnClickListener
             public void onClick(View view2) {
-                if(nativePlayerActive)leaveNativeVideo(false);
-                WebViewCarFragment.this.webView.loadUrl(homePage());
+                prepareForNewPage();
+                WebViewCarFragment.this.webView.loadUrl(serviceHome());
             }
         });
         imageButton.setOnLongClickListener(new View.OnLongClickListener() {
@@ -370,93 +372,26 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
                 WebViewCarFragment.this.webView.reload();
             }
         });
-        ((ImageButton) view.findViewById(R.id.voice_button)).setOnClickListener(new View.OnClickListener() {
-            @Override // android.view.View.OnClickListener
-            public void onClick(View view2) {
-                if (WebViewCarFragment.this.speechRecognizer != null) {
-                    WebViewCarFragment.this.speechRecognizer.stopListening();
-                    WebViewCarFragment.this.speechRecognizer.destroy();
-                    WebViewCarFragment.this.speechRecognizer = null;
-                    return;
-                }
-                WebViewCarFragment.this.webView.pauseVideoAndSetFlag();
-                if(nativePlayerFragment!=null)nativePlayerFragment.pause();
-                final RecognitionProgressView recognitionProgressView = (RecognitionProgressView) view.findViewById(R.id.speech_view);
-                recognitionProgressView.setOnClickListener(new View.OnClickListener() {
-                    @Override // android.view.View.OnClickListener
-                    public void onClick(View view3) {
-                        recognitionProgressView.stop();
-                        recognitionProgressView.setVisibility(android.view.View.GONE);
-                    }
-                });
-                MyRecognitionListener myRecognitionListener = new MyRecognitionListener(new MyRecognitionListener.OnCompleteListener() {
-                    @Override // com.thekirankumar.youtubeauto2.utils.MyRecognitionListener.OnCompleteListener
-                    public void onEnd() {
-                    }
-
-                    @Override // com.thekirankumar.youtubeauto2.utils.MyRecognitionListener.OnCompleteListener
-                    public void onVoiceRecognitionComplete(String str) {
-                        WebViewCarFragment.this.search(str);
-                        if (WebViewCarFragment.this.speechRecognizer != null) {
-                            WebViewCarFragment.this.speechRecognizer.destroy();
-                            WebViewCarFragment.this.speechRecognizer = null;
-                        }
-                        recognitionProgressView.stop();
-                        recognitionProgressView.setVisibility(android.view.View.GONE);
-                    }
-
-                    @Override // com.thekirankumar.youtubeauto2.utils.MyRecognitionListener.OnCompleteListener
-                    public void onError(int i) {
-                        recognitionProgressView.stop();
-                        recognitionProgressView.setVisibility(android.view.View.GONE);
-                        showCarNotice(voiceErrorText(i));
-                        if (WebViewCarFragment.this.speechRecognizer != null) {
-                            WebViewCarFragment.this.speechRecognizer.destroy();
-                            WebViewCarFragment.this.speechRecognizer = null;
-                        }
-                    }
-                });
-                Context context = WebViewCarFragment.this.getContext();
-                // The car screen cannot show a permission prompt, the grant happens once on the phone
-                if (!isRecordAudioGranted()) { showCarNotice("Allow microphone access in Aux on your phone"); return; }
-                if (!SpeechRecognizer.isRecognitionAvailable(context)) { showCarNotice("Voice search needs the Google app on the phone"); return; }
-                WebViewCarFragment.this.speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context);
-                WebViewCarFragment.this.speechRecognizerIntent = new Intent("android.speech.action.RECOGNIZE_SPEECH");
-                WebViewCarFragment.this.speechRecognizerIntent.putExtra("android.speech.extra.LANGUAGE_MODEL", "free_form");
-                WebViewCarFragment.this.speechRecognizer.startListening(WebViewCarFragment.this.speechRecognizerIntent);
-                recognitionProgressView.setVisibility(android.view.View.VISIBLE);
-                recognitionProgressView.play();
-                recognitionProgressView.setSpeechRecognizer(WebViewCarFragment.this.speechRecognizer);
-                recognitionProgressView.setRecognitionListener(myRecognitionListener);
-                recognitionProgressView.setColors(new int[]{ContextCompat.getColor(context, R.color.color1), ContextCompat.getColor(context, R.color.color2), ContextCompat.getColor(context, R.color.color3), ContextCompat.getColor(context, R.color.color4), ContextCompat.getColor(context, R.color.color5)});
-            }
-        });
-        handleVoiceVisibility();
         final ImageButton imageButton2 = (ImageButton) view.findViewById(R.id.fullscreen_button);
         imageButton2.setOnClickListener(new View.OnClickListener() {
             @Override // android.view.View.OnClickListener
             public void onClick(View view2) {
                 if(exitVideoFullscreen())return;
-                playbackRecovery.setFullscreen(watchVideoId(),true);
+                playbackRecovery.setFullscreen(pageKey(),true);
                 // Fullscreen is requested first so it appears at once, the native handoff then prepares behind it
                 if(webView.getUrl()!=null&&webView.getUrl().contains("youtube.com/watch?")){webView.requestFullScreen();startNativeVideo();return;}
                 WebViewCarFragment.this.webView.requestFullScreen();
             }
         });
-        ((ImageButton) view.findViewById(R.id.search_youtube_button)).setOnClickListener(new View.OnClickListener() {
-            @Override // android.view.View.OnClickListener
-            public void onClick(View view2) {
-                if (!WebViewCarFragment.this.isSearchShown) {
-                    WebViewCarFragment.this.isSearchShown = true;
-                    WebViewCarFragment.this.searchMode = SearchMode.YOUTUBE;
-                    mainCarActivity.getSearchController().setSearchHint("YouTube Search");
-                    mainCarActivity.getSearchController().showSearchBox();
-                    return;
-                }
-                WebViewCarFragment.this.isSearchShown = false;
-                mainCarActivity.getSearchController().hideSearchBox();
-            }
+        // One Search button: it listens first, the keyboard button in the listening band switches to typing,
+        // and the keyboard opens by itself when voice is not available
+        view.findViewById(R.id.search_youtube_button).setOnClickListener(v -> {
+            if(isSearchShown){isSearchShown=false;mainCarActivity.getSearchController().hideSearchBox();return;}
+            if(speechRecognizer!=null){stopVoiceSearch();return;}
+            if(!startVoiceSearch())openTypedSearch();
         });
+        view.findViewById(R.id.type_search_button).setOnClickListener(v -> { stopVoiceSearch(); openTypedSearch(); });
+        view.findViewById(R.id.speech_view).setOnClickListener(v -> stopVoiceSearch());
         ((ImageButton) view.findViewById(R.id.bookmark_button)).setOnClickListener(new View.OnClickListener() {
             @Override // android.view.View.OnClickListener
             public void onClick(View view2) {
@@ -504,21 +439,18 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         this.webView.getSettings().setAllowFileAccess(true);
         this.webView.getSettings().setDomStorageEnabled(true);
         this.webView.getSettings().setDatabaseEnabled(true);
+        com.sya.tube.web.SignInWindows.prepare(this.webView);
         this.webView.getSettings().setSupportZoom(true);
         this.webView.getSettings().setRenderPriority(WebSettings.RenderPriority.HIGH);
         this.webView.getSettings().setLoadWithOverviewMode(true);
-        if (Build.VERSION.SDK_INT >= 16) {
-            this.webView.getSettings().setAllowFileAccessFromFileURLs(false);
-        }
+        this.webView.getSettings().setAllowFileAccessFromFileURLs(false);
         this.webView.getSettings().setAllowContentAccess(true);
-        if (Build.VERSION.SDK_INT >= 17) {
-            this.webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
-        }
+        this.webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
         this.webView.getSettings().setAllowFileAccess(true);
         // The web player only bridges the first seconds before the native player takes over with its own H.264 stream, and
         // forcing H.264 here measurably slows that start, so YouTube picks the codec unless the setting asks otherwise
         com.sya.tube.web.WebTuning.apply(this.webView, PreferenceManager.getDefaultSharedPreferences(getContext()).getBoolean("pref_prefer_h264", false));
-        if(PreferenceManager.getDefaultSharedPreferences(getContext()).getBoolean("pref_car_clean", true)) com.sya.tube.web.WebTuning.applyCarClean(this.webView);
+        if(PreferenceManager.getDefaultSharedPreferences(getContext()).getBoolean("pref_car_clean", true)){com.sya.tube.web.WebTuning.applyCarClean(this.webView);com.sya.tube.web.WebTuning.applyCarLayouts(this.webView);}
         if(keepAudioWhenHidden()) com.sya.tube.web.WebTuning.applyAlwaysVisible(this.webView);
         this.webView.useCaptureDiscovery();
         blockAds=PreferenceManager.getDefaultSharedPreferences(getContext()).getBoolean("pref_block_ads", true);
@@ -534,14 +466,8 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
                 new Handler(Looper.getMainLooper()).post(new Runnable() {
                     @Override // java.lang.Runnable
                     public void run() {
-                        String id=com.sya.tube.remote.CarRemote.videoId(string);
-                        SharedPreferences saved=getSharedPrefs();
-                        if(id!=null&&id.equals(saved.getString(RESUME_VIDEO,null))){
-                            playbackRecovery.begin(id,saved.getLong(RESUME_POSITION,0),saved.getBoolean(RESUME_PLAYING,true),saved.getBoolean(RESUME_FULLSCREEN,false));
-                            restoringPage=true;
-                            installResumePauseGuard();
-                        }
-                        WebViewCarFragment.this.webView.loadUrl(string);
+                        if(shouldResumeAtStart())resumeSaved();
+                        else WebViewCarFragment.this.webView.loadUrl(com.sya.tube.library.LibraryPages.START);
                         // Fullscreen belongs to the current video view, not a saved button preference.
                         WebViewCarFragment.this.getSharedPrefs().edit().remove(FULLSCREEN_KEY).apply();
                         if (AspectRatio.values().length > i) {
@@ -591,9 +517,11 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
             }
         });
         videoEnabledWebChromeClient.setVideoTouchListener(new View.OnTouchListener() {
+            // Only watches for a touch to show the controls, it never takes the touch, so the view's own click still runs
+            @android.annotation.SuppressLint("ClickableViewAccessibility")
             @Override // android.view.View.OnTouchListener
             public boolean onTouch(View view2, MotionEvent motionEvent) {
-                if (motionEvent.getAction() != 0) {
+                if (motionEvent.getAction() != MotionEvent.ACTION_DOWN) {
                     return false;
                 }
                 // Presentation dispatch handles car surface touches once, including Chromium
@@ -638,6 +566,8 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
 
         @Override public void onSearchClosed() {
             WebViewCarFragment.this.isSearchShown=false;
+            // Closing with the X leaves the host's search bar collapsed over the toolbar unless it is hidden too
+            this.val$carUiController.getSearchController().hideSearchBox();
             suggestionGeneration++;
             suggestions.cancel();
             handler.removeCallbacks(searchRunnable);
@@ -648,14 +578,20 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
             handler.removeCallbacks(searchRunnable);
             suggestions.cancel();
             final long generation = ++suggestionGeneration;
-            if (str.trim().isEmpty()) { val$searchController.setSearchItems(java.util.Collections.emptyList()); return; }
-            final String base = searchMode == SearchMode.YOUTUBE ? YOUTUBE_AUTOSUGGEST_URL_BASE : GOOGLE_AUTOSUGGEST_URL_BASE;
+            if (str.trim().isEmpty()||searchMode==SearchMode.PATREON||searchMode==SearchMode.TWITCH) { val$searchController.setSearchItems(java.util.Collections.emptyList()); return; }
+            final String base = searchMode == SearchMode.GOOGLE ? GOOGLE_AUTOSUGGEST_URL_BASE : YOUTUBE_AUTOSUGGEST_URL_BASE;
             searchRunnable = () -> suggestions.load(base, str, items -> val$view.post(() -> {
                 if (getView()!=null && isSearchShown && generation==suggestionGeneration)
                     val$searchController.setSearchItems(items);
             }));
             handler.postDelayed(searchRunnable, 300L);
         }
+    }
+
+    /** The view the car keyboard types into, a sign-in window when one is open above the page */
+    private VideoWebView editingView() {
+        android.webkit.WebView window=com.sya.tube.web.SignInWindows.top(webView);
+        return window instanceof VideoWebView?(VideoWebView)window:webView;
     }
 
     private void setupEditTextMirroring(final CarEditText carEditText) {
@@ -670,7 +606,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
 
             @Override // android.text.TextWatcher
             public void onTextChanged(CharSequence charSequence, int i, int i2, int i3) {
-                WebViewCarFragment.this.webView.enterEditText(carEditText.getText().toString());
+                editingView().enterEditText(carEditText.getText().toString());
             }
         });
         carEditText.setOnEditorActionListener(new TextView.OnEditorActionListener() {
@@ -679,7 +615,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
                 if (i != android.view.inputmethod.EditorInfo.IME_ACTION_DONE && i != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH && (keyEvent == null || keyEvent.getKeyCode()!=KeyEvent.KEYCODE_ENTER || keyEvent.getAction()!=KeyEvent.ACTION_UP)) {
                     return false;
                 }
-                WebViewCarFragment.this.webView.sendKeyboardEnterEvent();
+                editingView().sendKeyboardEnterEvent();
                 WebViewCarFragment.this.onHideKeyboardFromJS();
                 return true;
             }
@@ -706,7 +642,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     /* JADX INFO: Access modifiers changed from: private */
     public void search(String str) {
         if(webView==null) return;
-        String url=com.thekirankumar.youtubeauto2.utils.SearchUrls.forQuery(str,searchMode==SearchMode.YOUTUBE);
+        String url=com.thekirankumar.youtubeauto2.utils.SearchUrls.forQuery(str,searchMode);
         if(url==null) return;
         if(webView.isVideoFullscreen()) webView.exitFullScreen();
         if(nativePlayerActive) hideNativePlayer();
@@ -715,6 +651,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
 
     /* JADX INFO: Access modifiers changed from: private */
     public boolean goBack() {
+        if (com.sya.tube.web.SignInWindows.closeTop(this.webView)) return true;
         if (exitVideoFullscreen()) return true;
         if (!this.webView.canGoBack() || !this.webView.hasFocus()) {
             return false;
@@ -823,7 +760,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
 
     private void installResumePauseGuard() {
         if(resumePauseScript!=null){resumePauseScript.remove();resumePauseScript=null;}
-        com.sya.tube.player.CarPlaybackRecovery.Snapshot resume=playbackRecovery.pending(watchVideoId());
+        com.sya.tube.player.CarPlaybackRecovery.Snapshot resume=playbackRecovery.pending(pageKey());
         if(resume==null){
             // Before the first load the WebView has no address yet.
             String id=getSharedPrefs().getString(RESUME_VIDEO,null);
@@ -837,7 +774,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
             while((count=input.read(buffer))!=-1)output.write(buffer,0,count);
             String script="window.tubeRestorePausedVideoId="+org.json.JSONObject.quote(resume.videoId)+";"+output.toString("UTF-8");
             if(androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT))
-                resumePauseScript=androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView,script,java.util.Collections.singleton("https://*.youtube.com"));
+                resumePauseScript=androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView,script,new java.util.HashSet<>(java.util.Arrays.asList("https://*.youtube.com","https://*.patreon.com","https://*.twitch.tv")));
             webView.evaluateJavascript(script,null);
         }catch(java.io.IOException error){Log.w(TAG,"Playback restore script unavailable");}
     }
@@ -848,21 +785,28 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         if(webView!=null)webView.evaluateJavascript("if(window.tubeReleaseRestorePause)window.tubeReleaseRestorePause();",null);
     }
 
+    /*
+     * An older Patreon player waits with preload none until load() nudges it. Patreon's streaming player feeds the video
+     * from a blob: MediaSource instead, and load() on that tears the stream down for good (Format error, stuck on the
+     * cover), so only a real file address is nudged
+     */
     private void restorePendingPlayback() {
         if(webView==null||nativePlayerActive||restorePosted||!restoringPage)return;
-        String id=watchVideoId();
+        String id=pageKey();
         com.sya.tube.player.CarPlaybackRecovery.Snapshot resume=playbackRecovery.pending(id);
         if(resume==null)return;
         restorePosted=true;
-        webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');let player=document.querySelector('#movie_player,.html5-video-player');if(!v||v.readyState<1||player&&(player.classList.contains('ad-showing')||player.classList.contains('ad-interrupting')))return false;v.currentTime="+(resume.positionMs/1000.0)+";"+(resume.playing?"let p=v.play();if(p)p.catch(()=>{});":"window.pausedDueToMinimize=false;v.pause();")+"return true;})()",value->{
+        webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');let player=document.querySelector('#movie_player,.html5-video-player');if(v&&v.readyState<1&&location.hostname.endsWith('patreon.com')&&/^https?:/.test(v.currentSrc||v.src||'')&&!v.dataset.auxLoad){v.dataset.auxLoad='1';v.preload='auto';v.load();}if(!v||v.readyState<1||player&&(player.classList.contains('ad-showing')||player.classList.contains('ad-interrupting')))return false;"+(com.sya.tube.remote.Media.isLive(id)?"":"v.currentTime="+(resume.positionMs/1000.0)+";")+(resume.playing?"let p=v.play();if(p)p.catch(()=>{});":"window.pausedDueToMinimize=false;v.pause();")+"return true;})()",value->{
             restorePosted=false;
             if(webView==null||playbackRecovery.pending(id)!=resume)return;
             if(!"true".equals(value)){webView.postDelayed(this::restorePendingPlayback,500);return;}
             playbackRecovery.consume(id);
             restoringPage=false;
+            // Patreon's and Twitch's players settle after a restore and can pause or jump back, the place is held until it sticks
+            if(com.sya.tube.remote.Media.isPatreon(id)||com.sya.tube.remote.Media.isTwitch(id))holdPatreonPosition(id,com.sya.tube.remote.Media.isLive(id)?0:resume.positionMs,resume.playing,0);
             setPlaybackControls(true,resume.playing);
             playerState=resume.playing?android.media.session.PlaybackState.STATE_PLAYING:android.media.session.PlaybackState.STATE_PAUSED;
-            if(resume.fullscreen){autoFullscreenVideoId=null;autoFullscreenDeclinedId=null;remoteFullscreenId=id;webView.requestFullScreen();startNativeVideo();}
+            if(resume.fullscreen){autoFullscreenVideoId=null;autoFullscreenDeclinedId=null;remoteFullscreenId=id;webView.requestFullScreen();if(com.sya.tube.remote.Media.isYoutube(id))startNativeVideo();}
             else autoFullscreenDeclinedId=id;
             debugStage("restored playback paused="+!resume.playing+" fullscreen="+resume.fullscreen);
         });
@@ -955,7 +899,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         String host=uri.getHost();
         String path=uri.getPath();
         boolean youtube=host!=null&&(host.equals("youtube.com")||host.endsWith(".youtube.com"));
-        String id=!youtube?null:"/watch".equals(path)?uri.getQueryParameter("v"):(path!=null&&path.startsWith("/shorts/")?path.substring(8):null);
+        String id=!youtube?com.sya.tube.remote.Media.key(url):"/watch".equals(path)?uri.getQueryParameter("v"):(path!=null&&path.startsWith("/shorts/")?path.substring(8):null);
         boolean abandonedRestore=restoringPage&&playbackRecovery.pending(id)==null;
         playbackRecovery.navigate(id);
         if(playbackRecovery.pending(id)==null)restoringPage=false;
@@ -1009,13 +953,18 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
 
     /** Remembers the current video at its current time as the page Tube opens with next, then runs done */
     public void saveResumePoint(Runnable done) {
-        String id=watchVideoId();
+        String id=pageKey();
         if(id==null||webView==null||getContext()==null){done.run();return;}
         java.util.concurrent.atomic.AtomicBoolean finished=new java.util.concurrent.atomic.AtomicBoolean();
         java.util.function.LongConsumer save=ms->{
             if(!finished.compareAndSet(false,true))return;
-            String url="https://m.youtube.com/watch?v="+id+(ms>5000?"&t="+(ms/1000)+"s":"");
-            if(getContext()!=null)writeResumePoint(id,ms);
+            String url=com.sya.tube.remote.Media.url(id,ms);
+            if(getContext()!=null){
+                // Behind another app a page can pause itself, it was playing when the driver left so it continues later
+                SharedPreferences saved=getSharedPrefs();
+                if(backgroundAudio&&id.equals(saved.getString(RESUME_VIDEO,null)))writeResumePoint(id,ms,saved.getBoolean(RESUME_PLAYING,false));
+                else writeResumePoint(id,ms);
+            }
             debugStage("resume point "+url);
             done.run();
         };
@@ -1056,8 +1005,9 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         // A playlist keeps its place, so turning the car back on continues the list in order
         String list=null,index=null;
         if(webView!=null&&webView.getUrl()!=null){android.net.Uri page=android.net.Uri.parse(webView.getUrl());if(id.equals(page.getQueryParameter("v"))){list=page.getQueryParameter("list");index=page.getQueryParameter("index");}}
-        getSharedPrefs().edit().putString(HOME_URL,"https://m.youtube.com/watch?v="+id+(list!=null?"&list="+list+(index!=null?"&index="+index:""):"")+(ms>5000?"&t="+(ms/1000)+"s":""))
-                .putString(RESUME_VIDEO,id).putLong(RESUME_POSITION,Math.max(0,ms)).putBoolean(RESUME_PLAYING,playing)
+        String saved=com.sya.tube.remote.Media.isYoutube(id)?"https://m.youtube.com/watch?v="+id+(list!=null?"&list="+list+(index!=null?"&index="+index:""):"")+(ms>5000?"&t="+(ms/1000)+"s":""):com.sya.tube.remote.Media.url(id,ms);
+        getSharedPrefs().edit().putString(HOME_URL,saved)
+                .putString(RESUME_VIDEO,id).putLong(RESUME_POSITION,Math.max(0,ms)).putBoolean(RESUME_PLAYING,playing).putLong(RESUME_AT,System.currentTimeMillis())
                 .putBoolean(RESUME_FULLSCREEN,pending!=null?pending.fullscreen:isVideoFullscreenShown()).apply();
     }
 
@@ -1092,7 +1042,11 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
                 return;
             }
             String id=remoteVideoId();
-            if(id==null){watchedId=null;com.thekirankumar.youtubeauto2.service.MyMediaBrowserService.publishCar(getContext(),null,false,0,0);updateChapterData(null);return;}
+            if(id==null){
+                // Leaving a video page removes its video without a pause event, the toolbar is set back to play
+                // unless a video still plays on the new page
+                if(watchedId!=null&&webView!=null)webView.evaluateJavascript("(()=>{const v=document.querySelector('video');return !!(v&&!v.paused&&!v.ended)})()",value->{if(!"true".equals(value)&&remoteVideoId()==null)setPlaybackControls(true,false);});
+                watchedId=null;com.thekirankumar.youtubeauto2.service.MyMediaBrowserService.publishCar(getContext(),null,false,0,0);updateChapterData(null);return;}
             updateChapterData(id);
             if(nativePlayerActive&&nativePlayerFragment!=null){
                 liveVideo=false;
@@ -1109,8 +1063,32 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         }
     };
 
+    // A Twitch broadcast or clip has no public picture, a small frame from the playing video becomes its card picture
+    private static final String FRAME_JS="(()=>{const v=document.querySelector('video');if(!v||v.readyState<2||!v.videoWidth)return '';"
+        +"const c=document.createElement('canvas');c.width=320;c.height=180;try{c.getContext('2d').drawImage(v,0,0,320,180);return c.toDataURL('image/jpeg',0.7);}catch(e){return '';}})()";
+
+    private void keepFrame(String id) {
+        if(webView==null||nativePlayerActive||!com.sya.tube.remote.RecentVideos.wantsFrame(getContext(),id))return;
+        webView.evaluateJavascript(FRAME_JS,value->{
+            if(value==null||value.length()<30||!id.equals(pageKey()))return;
+            try{com.sya.tube.remote.RecentVideos.setFrame(getContext(),id,new org.json.JSONTokener(value).nextValue().toString());}catch(Exception ignored){}
+        });
+    }
+
+    // Where the Twitch clip on screen was at the last check, a clip starts over by itself instead of ending
+    private String clipKey;
+    private long clipPos;
+
     private void watch(String id,String title,long pos,long dur,boolean playing,boolean ad,boolean buffering) {
         if(getContext()==null)return;
+        if(id.startsWith(com.sya.tube.remote.Media.TWITCH_CLIP)&&!nativePlayerActive){
+            // A jump from the last seconds back to the start is the clip finishing, a pick queued on the phone plays then
+            boolean wrapped=id.equals(clipKey)&&dur>0&&clipPos>dur-5000&&pos<5000&&android.os.SystemClock.elapsedRealtime()-lastSeekAt>5000;
+            clipKey=id;clipPos=pos;
+            if(wrapped&&com.sya.tube.remote.UpNext.size(getContext())>0){debugStage("clip ended, up next");playNextVideo();return;}
+        }
+        // The media card and the recent list show the video's name, not the site's
+        title=com.sya.tube.remote.Media.cleanTitle(id,title);
         long now=android.os.SystemClock.elapsedRealtime();
         com.thekirankumar.youtubeauto2.service.MyMediaBrowserService.publishCar(getContext(),title,playing,pos,dur);
         observedPlaying=playing;observedAt=now;
@@ -1131,7 +1109,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         }
         if(playing&&pos>0){
             trackedVideoId=id;trackedPositionMs=pos;
-            if(now-lastResumeWrite>=10_000){lastResumeWrite=now;writeResumePoint(id,pos);if(!liveVideo)com.sya.tube.remote.RecentVideos.update(getContext(),id,title,pos,dur);}
+            if(now-lastResumeWrite>=10_000){lastResumeWrite=now;writeResumePoint(id,pos);if(!liveVideo){com.sya.tube.remote.RecentVideos.update(getContext(),id,title,pos,dur);keepFrame(id);}}
         }
         // A new video or a seek buffers on purpose, only playback that should be moving counts
         boolean settling=now-watchedSince<8000||now-lastSeekAt<5000||now-lastWeakStep<15_000;
@@ -1159,6 +1137,8 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         long now=android.os.SystemClock.elapsedRealtime();
         // No signal at all is not a weak one, the quality stays and the video continues once the phone is back online
         if(!isOnline())return;
+        // Only YouTube's quality can be lowered from here, a Patreon post's own player adapts to the signal itself
+        if(!com.sya.tube.remote.Media.isYoutube(pageKey())&&!nativePlayerActive)return;
         weakSignalUntil=now+300_000;
         // One step a minute at most, the reload after a step stalls by itself and must not count as more trouble
         if(now-lastWeakStep<60_000)return;
@@ -1179,12 +1159,12 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         lastSeekAt=android.os.SystemClock.elapsedRealtime();
         if(recoveredOnce){weakSignal("froze again");return;}
         recoveredOnce=true;
-        com.sya.tube.player.YoutubeStreams.invalidate("https://m.youtube.com/watch?v="+id,qualityHeight(videoQuality));
+        if(com.sya.tube.remote.Media.isYoutube(id))com.sya.tube.player.YoutubeStreams.invalidate("https://m.youtube.com/watch?v="+id,qualityHeight(videoQuality));
         // The player may already have dropped back to zero, the last time seen playing is where it continues
         com.sya.tube.player.CarPlaybackRecovery.Snapshot pending=playbackRecovery.pending(id);
         long resume=pending!=null?pending.positionMs:id.equals(trackedVideoId)?Math.max(pos,trackedPositionMs):pos;
         writeResumePoint(id,resume);
-        String url=getSharedPrefs().getString(HOME_URL,"https://m.youtube.com/watch?v="+id);
+        String url=getSharedPrefs().getString(HOME_URL,com.sya.tube.remote.Media.url(id,0));
         if(!isOnline()){
             if(playbackRecovery.pending(id)==null)playbackRecovery.begin(id,resume,isPlayingNow()||playerState==android.media.session.PlaybackState.STATE_BUFFERING,isVideoFullscreenShown());
             retryWhenOnline=url;showPlaybackFeedback(com.sya.tube.player.CarPlaybackRecovery.Feedback.OFFLINE);return;
@@ -1206,8 +1186,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     }
     /** Leaving a video clears what was decided for it, opening it again later is a fresh start that goes fullscreen with sound */
     private void forgetVideoMarks(String url) {
-        android.net.Uri uri=android.net.Uri.parse(url);
-        String id="/watch".equals(uri.getPath())?uri.getQueryParameter("v"):null;
+        String id=com.sya.tube.remote.Media.key(url);
         if(autoFullscreenVideoId!=null&&!autoFullscreenVideoId.equals(id))autoFullscreenVideoId=null;
         if(autoFullscreenDeclinedId!=null&&!autoFullscreenDeclinedId.equals(id))autoFullscreenDeclinedId=null;
         if(unmutedVideoId!=null&&!unmutedVideoId.equals(id))unmutedVideoId=null;
@@ -1225,25 +1204,25 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     @Override public void remotePlay(String url) {
         if(webView==null)return;
         playbackRecovery.navigate(null);restoringPage=false;releaseResumePause();retryWhenOnline=null;
-        android.net.Uri uri=android.net.Uri.parse(url);
-        remoteFullscreenId=uri.getQueryParameter("v");
+        patreonStartedKey=null;
+        remoteFullscreenId=com.sya.tube.remote.Media.key(url);
         autoFullscreenDeclinedId=null;autoFullscreenVideoId=null;
         if(nativeHandoffPending)cancelNativeHandoff();
         if(nativePlayerActive)leaveNativeVideo(false);
         if(webView.isVideoFullscreen())webView.exitFullScreen();
         debugStage("remotePlay");
-        webView.loadUrl(url);
+        loadPage(url);
     }
 
     @Override public void remoteToggle() {
-        com.sya.tube.player.CarPlaybackRecovery.Snapshot pending=playbackRecovery.pending(watchVideoId());
+        com.sya.tube.player.CarPlaybackRecovery.Snapshot pending=playbackRecovery.pending(pageKey());
         if(pending!=null){remoteSetPlaying(!pending.playing);return;}
         if(nativePlayerActive&&nativePlayerFragment!=null){remoteSetPlaying(!nativePlayerFragment.playing());return;}
         if(webView!=null)webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');return v?v.paused:null})()",value->{if("true".equals(value)||"false".equals(value))remoteSetPlaying("true".equals(value));});
     }
 
     @Override public void remoteSetPlaying(boolean playing) {
-        String id=watchVideoId();
+        String id=nativePlayerActive?watchVideoId():pageKey();
         playbackRecovery.setPlaying(id,playing);
         if(playing)releaseResumePause();
         else showPlaybackFeedback(com.sya.tube.player.CarPlaybackRecovery.Feedback.NONE);
@@ -1279,6 +1258,8 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     /** Keep chapter data available to the phone remote without adding controls to the car toolbar. */
     private void updateChapterData(String id) {
         if(getView()==null)return;
+        // Only YouTube videos have chapters to look up
+        if(id!=null&&!com.sya.tube.remote.Media.isYoutube(id)){chaptersVideoId=id;pageChapters=java.util.Collections.emptyList();return;}
         if(id!=null&&!id.equals(chaptersVideoId)&&!(nativePlayerActive&&nativePlayerFragment!=null&&!nativePlayerFragment.chapters().isEmpty())){
             chaptersVideoId=id;pageChapters=java.util.Collections.emptyList();
             String url="https://m.youtube.com/watch?v="+id;
@@ -1289,14 +1270,14 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
 
     @Override public void remoteSeek(long deltaMs) {
         lastSeekAt=android.os.SystemClock.elapsedRealtime();
-        playbackRecovery.seek(watchVideoId(),Math.max(0,currentResumePosition()+deltaMs));
+        playbackRecovery.seek(nativePlayerActive?watchVideoId():pageKey(),Math.max(0,currentResumePosition()+deltaMs));
         if(nativePlayerActive&&nativePlayerFragment!=null){nativePlayerFragment.seekBy(deltaMs);return;}
         if(webView!=null)webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');if(v)v.currentTime=Math.max(0,v.currentTime+"+(deltaMs/1000.0)+");})()",null);
     }
 
     @Override public void remoteSeekTo(long positionMs) {
         lastSeekAt=android.os.SystemClock.elapsedRealtime();
-        playbackRecovery.seek(watchVideoId(),positionMs);
+        playbackRecovery.seek(nativePlayerActive?watchVideoId():pageKey(),positionMs);
         if(nativePlayerActive&&nativePlayerFragment!=null){nativePlayerFragment.seekBy(positionMs-nativePlayerFragment.position());return;}
         if(webView!=null)webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');if(v)v.currentTime="+(positionMs/1000.0)+";})()",null);
     }
@@ -1324,6 +1305,178 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         String speed=String.valueOf(com.sya.tube.settings.TubePrefs.speed(getContext()));
         webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');let p=document.querySelector('#movie_player,.html5-video-player');"
             +"if(!v||Math.abs(v.playbackRate-"+speed+")<0.01)return;if(p&&p.setPlaybackRate)p.setPlaybackRate("+speed+");v.playbackRate="+speed+";})()",null);
+    }
+
+    // A video that was playing when the car screen went away continues by itself if it comes back within this time,
+    // a drive that starts later opens on the start page instead
+    private static final long RESUME_WINDOW_MS=15*60_000;
+
+    private boolean shouldResumeAtStart() {
+        SharedPreferences saved=getSharedPrefs();
+        // The car was still on that video when it went away, not on a page browsed after it
+        String id=com.sya.tube.remote.Media.key(saved.getString(HOME_URL,null));
+        return id!=null&&id.equals(saved.getString(RESUME_VIDEO,null))&&saved.getBoolean(RESUME_PLAYING,false)
+            &&System.currentTimeMillis()-saved.getLong(RESUME_AT,0)<RESUME_WINDOW_MS;
+    }
+
+    /** Opens the last video at its saved place, paused or playing and in fullscreen as it was left */
+    private void resumeSaved() {
+        if(webView==null)return;
+        SharedPreferences saved=getSharedPrefs();
+        // Every page the car shows becomes the saved address, the saved video is what to continue
+        String id=saved.getString(RESUME_VIDEO,null);
+        if(id==null){webView.loadUrl(com.sya.tube.library.LibraryPages.START);return;}
+        String url=saved.getString(HOME_URL,null);
+        long position=saved.getLong(RESUME_POSITION,0);
+        if(!id.equals(com.sya.tube.remote.Media.key(url)))url=com.sya.tube.remote.Media.url(id,position);
+        prepareForNewPage();
+        playbackRecovery.begin(id,position,saved.getBoolean(RESUME_PLAYING,true),saved.getBoolean(RESUME_FULLSCREEN,false));
+        restoringPage=true;
+        installResumePauseGuard();
+        loadPage(url);
+    }
+
+    /** Opens a recent video where it stopped, a Patreon post has no start time in its address so the page is seeked */
+    private void openAt(String key,long positionMs) {
+        if(webView==null||key==null)return;
+        prepareForNewPage();
+        remoteFullscreenId=key;
+        if(com.sya.tube.remote.Media.isPatreon(key)&&positionMs>5000){
+            playbackRecovery.begin(key,positionMs,true,true);
+            restoringPage=true;
+        }
+        loadPage(com.sya.tube.remote.Media.url(key,positionMs));
+    }
+
+    /**
+     * A Patreon post's page carries a signed video link that expires, a copy from the cache then shows a broken video,
+     * so posts always load fresh from Patreon
+     */
+    private void loadPage(String url) {
+        if(webView==null||url==null)return;
+        if(!com.sya.tube.remote.Media.isPatreon(com.sya.tube.remote.Media.key(url))){webView.loadUrl(url);return;}
+        java.util.Map<String,String> fresh=new java.util.HashMap<>();
+        fresh.put("Cache-Control","no-cache");fresh.put("Pragma","no-cache");
+        webView.loadUrl(url,fresh);
+    }
+
+    // The Patreon post whose broken video was already reloaded once, a second failure is left to the driver's Refresh
+    private String patreonReloadedKey;
+
+    /** A Patreon video whose link failed shows a broken player, the page is loaded fresh once to get a new link */
+    private void checkPatreonStream(String key,int attempt) {
+        if(webView==null||attempt>4||!key.equals(pageKey()))return;
+        webView.postDelayed(()->{
+            if(webView==null||!key.equals(pageKey()))return;
+            webView.evaluateJavascript("(()=>{let v=document.querySelector('video');if(!v)return 'none';if(v.error||v.networkState===3)return 'broken';return v.readyState>0?'ok':'wait';})()",value->{
+                if(value==null||value.contains("ok"))return;
+                if(value.contains("broken")){
+                    if(key.equals(patreonReloadedKey))return;
+                    patreonReloadedKey=key;
+                    debugStage("patreon stream broken, reloading");
+                    com.sya.tube.player.CarPlaybackRecovery.Snapshot pending=playbackRecovery.pending(key);
+                    if(pending==null&&currentResumePosition()>5000){playbackRecovery.begin(key,currentResumePosition(),true,isVideoFullscreenShown());}
+                    if(webView.isVideoFullscreen())webView.exitFullScreen();
+                    restoringPage=playbackRecovery.pending(key)!=null;
+                    loadPage(webView.getUrl());
+                    return;
+                }
+                checkPatreonStream(key,attempt+1);
+            });
+        },2500);
+    }
+
+    /** Leaves whatever plays now, so the next page starts clean */
+    private void prepareForNewPage() {
+        playbackRecovery.navigate(null);restoringPage=false;releaseResumePause();retryWhenOnline=null;
+        autoFullscreenDeclinedId=null;autoFullscreenVideoId=null;patreonStartedKey=null;
+        if(nativeHandoffPending)cancelNativeHandoff();
+        if(nativePlayerActive)leaveNativeVideo(false);
+        if(webView!=null&&webView.isVideoFullscreen())webView.exitFullScreen();
+    }
+
+    /**
+     * Patreon's player ignores a start while it is still setting itself up, so the start is repeated for a few seconds
+     * until the video really plays, after that a pause is the driver's and stays
+     */
+    private void startPatreonPlayback(String key,int attempt) {
+        if(webView==null||attempt>8||!key.equals(pageKey())||!key.equals(remoteFullscreenId))return;
+        webView.evaluateJavascript("(()=>{let v=document.querySelector('video');if(!v)return 'none';if(!v.paused&&v.currentTime>0)return 'playing';let p=v.play();if(p)p.catch(()=>{});return 'asked';})()",value->{
+            if(value!=null&&value.contains("playing")){debugStage("patreon playing after "+attempt);return;}
+            if(webView!=null)webView.postDelayed(()->startPatreonPlayback(key,attempt+1),700);
+        });
+    }
+
+    /**
+     * Patreon's player moves back to the start once its stream attaches and pauses after a seek it did not make, so the
+     * restored place and play state are set again until they hold
+     */
+    private void holdPatreonPosition(String key,long positionMs,boolean playing,int attempt) {
+        if(webView==null||attempt>6)return;
+        webView.postDelayed(()->{
+            if(webView==null||!key.equals(pageKey()))return;
+            double target=positionMs/1000.0;
+            webView.evaluateJavascript("(()=>{let v=document.querySelector('video');if(!v)return 'none';let moved=false;"
+                +(positionMs>5000?"if(v.currentTime<"+(target-5)+"){v.currentTime="+target+";moved=true;}":"")
+                +(playing?"if(v.paused){let p=v.play();if(p)p.catch(()=>{});moved=true;}":"")
+                +"return moved?'moved':'held';})()",value->{
+                if(value!=null&&!value.contains("held"))holdPatreonPosition(key,positionMs,playing,attempt+1);
+                else debugStage("patreon restore held after "+attempt);
+            });
+        },1200);
+    }
+
+    /** A place picked on the phone's start page */
+    @Override public void remoteOpen(String url) {
+        if(webView==null||url==null)return;
+        if(openStartLink(url))return;
+        prepareForNewPage();
+        remoteFullscreenId=null;
+        webView.loadUrl(url);
+    }
+
+    /** A start page tile or continue card, picked on this screen or on the phone */
+    private boolean openStartLink(String url) {
+        if(com.sya.tube.library.LibraryPages.isSearchLink(url)){if(getView()!=null)getView().post(this::openTypedSearch);return true;}
+        if(com.sya.tube.library.LibraryPages.isContinueLink(url)) {
+            String key=android.net.Uri.parse(url).getQueryParameter("id");
+            if(key==null)resumeSaved();
+            else openAt(key,com.sya.tube.remote.RecentVideos.position(getContext(),key));
+            return true;
+        }
+        if(!com.sya.tube.library.LibraryPages.isOpenLink(url))return false;
+        prepareForNewPage();
+        remoteFullscreenId=null;
+        webView.loadUrl(com.sya.tube.library.LibraryPages.destination(url,false,homePage()));
+        return true;
+    }
+
+    /** The service shown now, or the last one shown when the start page is up, YouTube before anything was picked */
+    private String currentService() {
+        String service=com.sya.tube.remote.Media.service(webView==null?null:webView.getUrl());
+        if(service!=null){
+            if(getContext()!=null&&!service.equals(getSharedPrefs().getString(LAST_SERVICE,null)))getSharedPrefs().edit().putString(LAST_SERVICE,service).apply();
+            return service;
+        }
+        return getContext()==null?com.sya.tube.remote.Media.YOUTUBE_SERVICE:getSharedPrefs().getString(LAST_SERVICE,com.sya.tube.remote.Media.YOUTUBE_SERVICE);
+    }
+
+    /** Home is the current service's own home page, the start page has its own button */
+    private String serviceHome() {
+        String service=currentService();
+        if(com.sya.tube.remote.Media.PATREON_SERVICE.equals(service))return com.sya.tube.library.LibraryPages.PATREON_HOME;
+        if(com.sya.tube.remote.Media.TWITCH_SERVICE.equals(service))return com.sya.tube.library.LibraryPages.TWITCH_HOME;
+        if(com.sya.tube.remote.Media.LIBRARY_SERVICE.equals(service))return com.sya.tube.library.LibraryPages.HOME;
+        return homePage();
+    }
+
+    private SearchMode searchModeForPage() {
+        // The start page and the search results search everything at once
+        String url=webView==null?null:webView.getUrl();
+        if(com.sya.tube.library.LibraryPages.START.equals(url)||com.sya.tube.library.LibraryPages.isSearchPage(url))return SearchMode.ALL;
+        String service=currentService();
+        if(com.sya.tube.remote.Media.TWITCH_SERVICE.equals(service))return SearchMode.TWITCH;
+        return com.sya.tube.remote.Media.PATREON_SERVICE.equals(service)?SearchMode.PATREON:SearchMode.YOUTUBE;
     }
 
     /** Home opens YouTube, or the followed channels when the settings ask for that */
@@ -1423,32 +1576,39 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     @Override public void remoteFullscreen() {
         if(webView==null)return;
         if(exitVideoFullscreen())return;
-        String id=watchVideoId();
+        String id=pageKey();
         if(id==null)return;
         autoFullscreenDeclinedId=null;
         playbackRecovery.setFullscreen(id,true);
-        webView.requestFullScreen();startNativeVideo();
+        webView.requestFullScreen();if(com.sya.tube.remote.Media.isYoutube(id))startNativeVideo();
     }
 
     @Override public String remoteVideoId() {
         if(nativePlayerActive&&nativePlayerFragment!=null&&nativePlayerFragment.isMedia())return null;
         if(nativePlayerActive&&nativeVideoId!=null)return nativeVideoId;
-        return watchVideoId();
+        return pageKey();
     }
 
     @Override public void remoteState(java.util.function.Consumer<com.sya.tube.remote.CarRemote.State> out) {
         boolean fullscreen=isVideoFullscreenShown();
         if(nativePlayerActive&&nativePlayerFragment!=null){
             // The native player plays the stream itself, it never has ads
-            out.accept(new com.sya.tube.remote.CarRemote.State(nativePlayerFragment.title(),nativePlayerFragment.playing(),nativePlayerFragment.position(),nativePlayerFragment.duration(),nativePlayerFragment.isMedia()?null:videoQuality,fullscreen,false,nativePlayerFragment.speed()));
+            out.accept(new com.sya.tube.remote.CarRemote.State(nativePlayerFragment.title(),nativePlayerFragment.playing(),nativePlayerFragment.position(),nativePlayerFragment.duration(),nativePlayerFragment.isMedia()?null:videoQuality,fullscreen,false,nativePlayerFragment.speed(),true));
             return;
         }
         if(webView==null)return;
-        webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');let p=document.querySelector('#movie_player,.html5-video-player');return {title:document.title.replace(/ - YouTube$/,''),playing:!!(v&&!v.paused),pos:v?v.currentTime:0,dur:v&&isFinite(v.duration)?v.duration:0,ad:!!(p&&(p.classList.contains('ad-showing')||p.classList.contains('ad-interrupting'))),rate:v?v.playbackRate:1}})()",value->{
+        webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');let p=document.querySelector('#movie_player,.html5-video-player');return {title:document.title.replace(/ - YouTube$/,''),playing:!!(v&&!v.paused),pos:v?v.currentTime:0,dur:v&&isFinite(v.duration)?v.duration:0,ad:!!(p&&(p.classList.contains('ad-showing')||p.classList.contains('ad-interrupting'))),rate:v?v.playbackRate:1,has:!!v}})()",value->{
             try {
                 org.json.JSONObject state=new org.json.JSONObject(value);
                 // A page without a video is nothing playing, its title would read as a video name on the phone
-                out.accept(new com.sya.tube.remote.CarRemote.State(watchVideoId()==null?"":state.optString("title"),state.optBoolean("playing"),(long)(state.optDouble("pos")*1000),(long)(state.optDouble("dur")*1000),videoQuality,fullscreen,state.optBoolean("ad"),(float)state.optDouble("rate",1)));
+                String key=pageKey();
+                // A Twitch channel page without a stream, an offline channel, is nothing playing
+                if(com.sya.tube.remote.Media.isTwitch(key)&&!state.optBoolean("has"))key=null;
+                // Quality and ads are YouTube's, a Patreon post plays at the quality its own player picks
+                boolean youtube=com.sya.tube.remote.Media.isYoutube(key);
+                // A page that is not a video, such as a feed with players hidden in it, has no timeline either
+                boolean none=key==null;
+                out.accept(new com.sya.tube.remote.CarRemote.State(none?"":com.sya.tube.remote.Media.cleanTitle(key,state.optString("title")),!none&&state.optBoolean("playing"),none?0:(long)(state.optDouble("pos")*1000),none?0:(long)(state.optDouble("dur")*1000),youtube?videoQuality:null,fullscreen,youtube&&state.optBoolean("ad"),com.sya.tube.remote.Media.isLive(key)?1f:(float)state.optDouble("rate",1),youtube||key==null,com.sya.tube.remote.Media.isLive(key)));
             } catch(Exception ignored) {}
         });
     }
@@ -1471,7 +1631,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
 
     private static String voiceErrorText(int error) {
         switch(error) {
-            case SpeechRecognizer.ERROR_NO_MATCH: case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: return "Didn't catch that, tap the mic and try again";
+            case SpeechRecognizer.ERROR_NO_MATCH: case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: return "Didn't catch that, tap Search to try again";
             case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: return "Allow microphone access in Aux on your phone";
             case SpeechRecognizer.ERROR_NETWORK: case SpeechRecognizer.ERROR_NETWORK_TIMEOUT: return "Voice search needs a data connection";
             case SpeechRecognizer.ERROR_RECOGNIZER_BUSY: return "Voice search is busy, try again in a moment";
@@ -1490,7 +1650,10 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         return "Audio sync: "+(offsetMs>0?"picture delayed "+offsetMs+" ms":"picture early "+(-offsetMs)+" ms");
     }
 
-    private void showQualityChoices() {
+    private void showQualityChoices() { showQualityChoices(true); }
+
+    /** Quality and audio sync belong to YouTube and Aux's own player, Patreon and Twitch get the rest */
+    private void showQualityChoices(boolean youtube) {
         String[] values={"auto","medium","large","hd720","hd1080"};
         String current=videoQuality;
         int index=java.util.Arrays.asList(values).indexOf(current);
@@ -1528,7 +1691,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         }
         android.widget.LinearLayout.LayoutParams row=new android.widget.LinearLayout.LayoutParams(-1,-2);
         row.topMargin=gap;
-        panel.addView(qualities,row);
+        if(youtube)panel.addView(qualities,row);
         // Car audio arrives later than the picture over Android Auto, holding the picture back lines them up again
         android.widget.LinearLayout sync=com.sya.tube.car.CarStyle.segment(context);
         Button earlier=com.sya.tube.car.CarStyle.chip(context,"−",false);
@@ -1554,7 +1717,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         sync.addView(later,new android.widget.LinearLayout.LayoutParams(step,-2));
         android.widget.LinearLayout.LayoutParams syncRow=new android.widget.LinearLayout.LayoutParams(-1,-2);
         syncRow.topMargin=gap;
-        panel.addView(sync,syncRow);
+        if(youtube)panel.addView(sync,syncRow);
         android.widget.LinearLayout aspects=com.sya.tube.car.CarStyle.segment(context);
         for(AspectRatio ratio:AspectRatio.values()) {
             Button option=com.sya.tube.car.CarStyle.chip(context,getHumanText(ratio),ratio==currentAspectRatio);
@@ -1578,7 +1741,16 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         }
         android.widget.LinearLayout.LayoutParams speedRow=new android.widget.LinearLayout.LayoutParams(-1,-2);
         speedRow.topMargin=gap;
-        panel.addView(speeds,speedRow);
+        // A live stream plays as it is broadcast, a speed would only fall behind or run into the live edge
+        boolean live=!nativePlayerActive&&com.sya.tube.remote.Media.isLive(pageKey());
+        if(!live)panel.addView(speeds,speedRow);
+        if(!youtube&&!nativePlayerActive){
+            android.widget.TextView note=com.sya.tube.car.CarStyle.text(context,com.sya.tube.remote.Media.serviceName(pageKey())+" picks the quality itself, its own player has the setting",14,false);
+            note.setTextColor(context.getColor(R.color.tube_muted));
+            android.widget.LinearLayout.LayoutParams noteRow=new android.widget.LinearLayout.LayoutParams(-1,-2);
+            noteRow.topMargin=gap;
+            panel.addView(note,noteRow);
+        }
         // Shown when the fullscreen player has a caption track loaded, switching it takes effect at once
         if(nativePlayerActive&&nativePlayerFragment!=null&&nativePlayerFragment.hasCaptions()){
             android.widget.LinearLayout captions=com.sya.tube.car.CarStyle.segment(context);
@@ -1632,6 +1804,8 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     /* JADX INFO: Access modifiers changed from: private */
     public void showAndHideCornerControlsAnimation() {
         this.cornerControls.removeCallbacks(this.cornerControlsHideRunnable);
+        // The quality chip changes YouTube's quality, a Patreon post's player picks its own
+        if(getView()!=null)getView().findViewById(R.id.quality_button).setVisibility(nativePlayerActive||com.sya.tube.remote.Media.isYoutube(pageKey())?View.VISIBLE:View.GONE);
         showCornerControls();
         this.cornerControls.postDelayed(this.cornerControlsHideRunnable, 8000L);
     }
@@ -1678,7 +1852,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         super.onResume();
         lifecyclePaused=false;
         backgroundAudio=false;
-        if(webView!=null)webView.setKeepVisible(false);
+        if(webView!=null){webView.setKeepVisible(false);webView.resumeKept();}
         ExoPlayerFragment.keepPlayingWhenHidden=keepAudioWhenHidden();
         if(webView!=null){webView.removeCallbacks(playbackWatchdog);webView.postDelayed(playbackWatchdog,2000);}
         if(recentStrip!=null&&webView!=null)recentStrip.update(com.sya.tube.remote.RecentStrip.isHome(webView.getUrl()));
@@ -1704,7 +1878,6 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
             restorePendingPlayback();
             this.webView.playVideoIfPausedFlag();
         }
-        handleVoiceVisibility();
     }
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -1721,7 +1894,8 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     }
     private boolean isPlayingNow() {
         if(nativePlayerActive&&nativePlayerFragment!=null)return nativePlayerFragment.requestedPlaying();
-        return playerState==android.media.session.PlaybackState.STATE_PLAYING;
+        // Some sites send no playing event after a restore or a loop, the watchdog's last look at the clock counts too
+        return playerState==android.media.session.PlaybackState.STATE_PLAYING||observedPlaying&&android.os.SystemClock.elapsedRealtime()-observedAt<5000;
     }
     /** True while the car screen is out of view and its sound still plays, the car screen is kept open for it */
     public boolean isPlayingInBackground() {
@@ -1764,20 +1938,68 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         // Playback is paused before this method; the renderer owns audio focus.
     }
 
-    private void handleVoiceVisibility() {
-        if (getView() != null) {
-            // Always shown, a tap without the microphone grant explains how to allow it instead of the button silently missing
-            getView().findViewById(R.id.voice_button).setVisibility(android.view.View.VISIBLE);
-        }
+    /** The keyboard search box, searching the service being watched */
+    private void openTypedSearch() {
+        if(getView()==null)return;
+        isSearchShown=true;
+        searchMode=searchModeForPage();
+        carHost.getSearchController().setSearchHint(searchMode==SearchMode.ALL?"Search Aux":searchMode==SearchMode.PATREON?"Search Patreon":searchMode==SearchMode.TWITCH?"Search Twitch":"Search YouTube");
+        carHost.getSearchController().showSearchBox();
+    }
+
+    private void stopVoiceSearch() {
+        if(speechRecognizer!=null){speechRecognizer.cancel();speechRecognizer.destroy();speechRecognizer=null;}
+        if(getView()==null)return;
+        RecognitionProgressView bars=getView().findViewById(R.id.speech_view);
+        bars.stop();
+        getView().findViewById(R.id.voice_panel).setVisibility(View.GONE);
+    }
+
+    /** Starts listening, false when voice cannot be used here so the keyboard opens instead */
+    private boolean startVoiceSearch() {
+        Context context=getContext();
+        if(context==null||getView()==null||webView==null)return true;
+        // The car screen cannot show a permission prompt, the grant happens once on the phone
+        if(!isRecordAudioGranted()){showCarNotice("Allow the microphone in Aux on your phone to search by voice");return false;}
+        if(!SpeechRecognizer.isRecognitionAvailable(context))return false;
+        webView.pauseVideoAndSetFlag();
+        if(nativePlayerFragment!=null)nativePlayerFragment.pause();
+        RecognitionProgressView bars=getView().findViewById(R.id.speech_view);
+        MyRecognitionListener listener=new MyRecognitionListener(new MyRecognitionListener.OnCompleteListener() {
+            @Override public void onEnd() { }
+            @Override public void onVoiceRecognitionComplete(String str) {
+                stopVoiceSearch();
+                searchMode=searchModeForPage();
+                search(str);
+            }
+            @Override public void onError(int error) {
+                stopVoiceSearch();
+                // Without a working microphone the search is typed instead, a missed phrase gets a hint to try again
+                if(error==SpeechRecognizer.ERROR_AUDIO||error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS||error==SpeechRecognizer.ERROR_CLIENT){openTypedSearch();return;}
+                showCarNotice(voiceErrorText(error));
+            }
+        });
+        speechRecognizer=SpeechRecognizer.createSpeechRecognizer(context);
+        speechRecognizerIntent=new Intent("android.speech.action.RECOGNIZE_SPEECH");
+        speechRecognizerIntent.putExtra("android.speech.extra.LANGUAGE_MODEL","free_form");
+        getView().findViewById(R.id.voice_panel).setVisibility(View.VISIBLE);
+        bars.setSpeechRecognizer(speechRecognizer);
+        bars.setRecognitionListener(listener);
+        bars.setColors(new int[]{ContextCompat.getColor(context,R.color.color1),ContextCompat.getColor(context,R.color.color2),ContextCompat.getColor(context,R.color.color3),ContextCompat.getColor(context,R.color.color4),ContextCompat.getColor(context,R.color.color5)});
+        bars.play();
+        speechRecognizer.startListening(speechRecognizerIntent);
+        return true;
     }
 
     @Override // androidx.fragment.app.Fragment
     public void onPause() {
+        // A sign-in finished on the car is written out, the car screen can be torn down without warning
+        android.webkit.CookieManager.getInstance().flush();
         rememberLeavingPosition();
         // With the setting on, switching to Maps or another app keeps the sound going, the watchdog keeps running meanwhile
         if(keepAudioWhenHidden()&&isPlayingNow()){
             backgroundAudio=true;
-            if(webView!=null&&!nativePlayerActive)webView.setKeepVisible(true);
+            if(webView!=null&&!nativePlayerActive){webView.setKeepVisible(true);webView.keepPlaying(true);}
             com.sya.tube.diag.Diag.log("car","kept playing behind another app");
             super.onPause();
             return;
@@ -1850,13 +2072,45 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         }
     }
 
+    /** A video tapped in the Patreon card grid starts and goes fullscreen, the same as a pick from the phone */
+    @Override public void onPlayPicked(String url) {
+        String playable=com.sya.tube.remote.Media.playableUrl(url);
+        if(playable!=null)remotePlay(playable);
+    }
+
+    /** "Continue on your phone" on Patreon's car sign-in page, the phone signs in and this screen follows */
+    @Override public void onSignInOnPhone(String page) {
+        if(getContext()==null)return;
+        com.sya.tube.web.PhoneSignIn.request(getContext(),page);
+        showCarNotice("Sign in to Patreon on your phone, this screen continues by itself");
+        waitForPhoneSignIn(0);
+    }
+
+    private void waitForPhoneSignIn(int attempt) {
+        if(webView==null||attempt>200)return;
+        webView.postDelayed(()->{
+            if(webView==null)return;
+            String url=webView.getUrl();
+            // The driver moved on, nothing is waited for any more
+            if(url==null||!url.contains("patreon.com/login"))return;
+            if(com.sya.tube.web.PhoneSignIn.signedIn()){debugStage("patreon signed in on phone");com.sya.tube.web.PhoneSignIn.done(getContext());loadPage(com.sya.tube.library.LibraryPages.PATREON_HOME);return;}
+            waitForPhoneSignIn(attempt+1);
+        },3000);
+    }
+
     @Override // com.thekirankumar.youtubeauto2.webview.JavascriptCallback.JSCallbacks
     public void onVideoElementDiscovered() {
         if(webView==null) return;
+        String key=pageKey();
+        if(com.sya.tube.remote.Media.isPatreon(key))checkPatreonStream(key,0);
+        if(com.sya.tube.remote.Media.isPatreon(key)&&key.equals(remoteFullscreenId)&&!key.equals(patreonStartedKey)&&playbackRecovery.pending(key)==null){
+            patreonStartedKey=key;
+            startPatreonPlayback(key,0);
+        }
         if(PlaybackOwner.isContentVideo(webView)) setPlaybackControls(true,playerState==android.media.session.PlaybackState.STATE_PLAYING);
         AspectRatio aspectRatio = this.currentAspectRatio;
         if (aspectRatio != null) {
-            this.webView.setAspectRatio(aspectRatio.name().toLowerCase());
+            this.webView.setAspectRatio(aspectRatio.name().toLowerCase(java.util.Locale.ROOT));
         }
         this.webView.attachVideoListeners();
         restorePendingPlayback();
@@ -1882,8 +2136,10 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         carHost.getCarInputController().startInput(this.fakeEditText);
         CarEditText carEditText = this.fakeEditText;
         carEditText.setSelection(carEditText.getText().length());
+        // A sign-in window keeps its size, its fields sit near the top above the keyboard
+        if (editingView() != this.webView) return;
         ViewGroup.LayoutParams layoutParams = this.webView.getLayoutParams();
-        layoutParams.height = (int) TypedValue.applyDimension(1, 150.0f, getResources().getDisplayMetrics());
+        layoutParams.height = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 150.0f, getResources().getDisplayMetrics());
         this.webView.setLayoutParams(layoutParams);
         this.webView.scrollActiveElementIntoView(true);
     }
@@ -1895,51 +2151,6 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         ViewGroup.LayoutParams layoutParams = this.webView.getLayoutParams();
         layoutParams.height = -1;
         this.webView.setLayoutParams(layoutParams);
-    }
-
-    public void setParkingBrake(boolean z) {
-        this.isParkingEngaged = z;
-        if (!this.warningAccepted) {
-            showWarningScreen();
-        } else {
-            hideWarningScreen();
-        }
-    }
-
-    private void hideWarningScreen() {
-        if (this.warningScreenOpen) {
-            if (isAdded()) {
-                this.webView.setVisibility(android.view.View.VISIBLE);
-                this.toolbar.setVisibility(android.view.View.VISIBLE);
-                FragmentManager childFragmentManager = getChildFragmentManager();
-                Fragment fragmentFindFragmentByTag = childFragmentManager.findFragmentByTag(SAFETY_WARNING_FRAGMENT_TAG);
-                if (fragmentFindFragmentByTag != null) {
-                    this.warningScreenOpen = false;
-                    FragmentTransaction fragmentTransactionBeginTransaction = childFragmentManager.beginTransaction();
-                    fragmentTransactionBeginTransaction.remove(fragmentFindFragmentByTag);
-                    fragmentTransactionBeginTransaction.setCustomAnimations(android.R.animator.fade_in, android.R.animator.fade_out);
-                    fragmentTransactionBeginTransaction.commitAllowingStateLoss();
-                }
-            }
-            this.webView.requestFocus();
-        }
-    }
-
-    private void showWarningScreen() {
-        if (isAdded()) {
-            this.warningScreenOpen = true;
-            FragmentManager childFragmentManager = getChildFragmentManager();
-            SafetyWarningFragment safetyWarningFragment = (SafetyWarningFragment) childFragmentManager.findFragmentByTag(SAFETY_WARNING_FRAGMENT_TAG);
-            if (safetyWarningFragment == null) {
-                safetyWarningFragment = new SafetyWarningFragment();
-            }
-            FragmentTransaction fragmentTransactionBeginTransaction = childFragmentManager.beginTransaction();
-            fragmentTransactionBeginTransaction.replace(R.id.overlay_container, safetyWarningFragment, SAFETY_WARNING_FRAGMENT_TAG);
-            fragmentTransactionBeginTransaction.setCustomAnimations(android.R.animator.fade_in, android.R.animator.fade_out);
-            fragmentTransactionBeginTransaction.commitNow();
-            this.webView.setVisibility(android.view.View.GONE);
-            this.toolbar.setVisibility(android.view.View.GONE);
-        }
     }
 
     private void hideBookmarksScreen() {
@@ -2029,6 +2240,8 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         // A video queued from the phone comes before YouTube's own next one
         com.sya.tube.remote.UpNext.Item queued=getContext()==null?null:com.sya.tube.remote.UpNext.pop(getContext());
         if(queued!=null){debugStage("upNext "+queued.id);remotePlay(queued.url);return;}
+        // A Patreon post or Twitch stream has no next video of its own, skipping to its end would only lose the place
+        if(com.sya.tube.remote.Media.isPatreon(pageKey())||com.sya.tube.remote.Media.isTwitch(pageKey())){showCarNotice("Nothing queued, pick Play next on your phone");return;}
         if(nativePlayerActive)leaveNativeVideo(false);
         if(webView.isVideoFullscreen())webView.exitFullScreen();
         webView.playNextTrack();
@@ -2071,6 +2284,10 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         }
         leaveNativeVideo(true);webView.requestFullScreen();
     }
+    /** The key of the web video the page shows, a YouTube video or a Patreon post, see Media */
+    private String pageKey() {
+        return com.sya.tube.remote.Media.key(webView==null?null:webView.getUrl());
+    }
     private String watchVideoId() {
         String url=webView==null?null:webView.getUrl();
         if(url==null)return null;
@@ -2088,8 +2305,8 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     /** Back and the fullscreen button both land here, returning to the page at the current spot */
     private boolean exitVideoFullscreen() {
         if(webView==null||!nativeHandoffPending&&!nativePlayerActive&&!webView.isVideoFullscreen())return false;
-        autoFullscreenDeclinedId=watchVideoId();
-        playbackRecovery.setFullscreen(watchVideoId(),false);
+        autoFullscreenDeclinedId=pageKey();
+        playbackRecovery.setFullscreen(pageKey(),false);
         if(nativeHandoffPending){cancelNativeHandoff();if(webView.isVideoFullscreen())webView.exitFullScreen();return true;}
         if(nativePlayerActive){leaveNativeVideo(true);return true;}
         webView.exitFullScreen();
@@ -2097,16 +2314,16 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     }
     private void maybeAutoFullscreen() { maybeAutoFullscreen(false); }
     private void maybeAutoFullscreen(boolean early) {
-        if(webView==null||getView()==null||nativePlayerActive||nativeHandoffPending||webView.isVideoFullscreen()||isSearchShown||warningScreenOpen){
-            debugStage("autoSkip native="+nativePlayerActive+" pending="+nativeHandoffPending+" fs="+(webView!=null&&webView.isVideoFullscreen())+" search="+isSearchShown+" warning="+warningScreenOpen);
+        if(webView==null||getView()==null||nativePlayerActive||nativeHandoffPending||webView.isVideoFullscreen()||isSearchShown){
+            debugStage("autoSkip native="+nativePlayerActive+" pending="+nativeHandoffPending+" fs="+(webView!=null&&webView.isVideoFullscreen())+" search="+isSearchShown);
             return;
         }
-        String id=watchVideoId();
+        String id=pageKey();
         if(playbackRecovery.pending(id)!=null){restorePendingPlayback();return;}
         if(!PreferenceManager.getDefaultSharedPreferences(getContext()).getBoolean("pref_auto_fullscreen",true)&&(id==null||!id.equals(remoteFullscreenId)))return;
         if(id==null||id.equals(autoFullscreenVideoId)||id.equals(autoFullscreenDeclinedId)){debugStage("autoSkip id="+id+" done="+autoFullscreenVideoId+" declined="+autoFullscreenDeclinedId);return;}
         webView.evaluateJavascript(AD_STATE_JS,value->{
-            if(webView==null||getView()==null||!id.equals(watchVideoId())||id.equals(autoFullscreenVideoId))return;
+            if(webView==null||getView()==null||!id.equals(pageKey())||id.equals(autoFullscreenVideoId))return;
             // Ads stay on the page where YouTube's own skip button works, fullscreen waits for the real video
             if(value!=null&&value.contains("\"ad\":true")){
                 debugStage("autoWaitAd");
@@ -2115,11 +2332,13 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
             }
             if(nativePlayerActive||nativeHandoffPending||webView.isVideoFullscreen())return;
             // A paused page stays a page, the playing event brings this back once the video starts, an early call
-            // comes from a video that is buffering to play, which is the same intent a moment sooner
-            if(!early&&(value==null||!value.contains("\"playing\":true")))return;
+            // comes from a video that is buffering to play, which is the same intent a moment sooner. Patreon's player
+            // stalls for good when fullscreen arrives before it has started, so a Patreon post waits for real playback
+            boolean playing=value!=null&&value.contains("\"playing\":true");
+            if(!playing&&(!early||com.sya.tube.remote.Media.isPatreon(id)))return;
             autoFullscreenVideoId=id;
             debugStage("autoFullscreen");
-            webView.requestFullScreen();startNativeVideo();
+            webView.requestFullScreen();if(com.sya.tube.remote.Media.isYoutube(id))startNativeVideo();
         });
     }
     /**
@@ -2159,7 +2378,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         if(skipAdButton==null){
             skipAdButton=com.sya.tube.car.CarStyle.button(getContext(),"Skip ad",true);
             skipAdButton.setTextSize(18);
-            android.graphics.drawable.Drawable skip=getContext().getDrawable(R.drawable.tube_ic_skip).mutate();
+            android.graphics.drawable.Drawable skip=androidx.appcompat.content.res.AppCompatResources.getDrawable(getContext(),R.drawable.tube_ic_skip).mutate();
             skip.setTint(android.graphics.Color.BLACK);
             skipAdButton.setCompoundDrawablesRelativeWithIntrinsicBounds(null,null,skip,null);
             skipAdButton.setCompoundDrawablePadding(com.sya.tube.car.CarStyle.dp(getContext(),8));
@@ -2310,7 +2529,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         debugStage("handoffSwap");
         showSkipAd(false);
         // Keep the paused page ready for settings and a position-preserving return.
-        webView.evaluateJavascript("(()=>{window.tubeNativePlayback=true;let p=document.querySelector('#movie_player,.html5-video-player');if(p&&p.pauseVideo)p.pauseVideo();document.querySelectorAll('video').forEach(v=>v.pause());if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});})()",null);
+        webView.evaluateJavascript("(()=>{window.__auxKeep=false;window.tubeNativePlayback=true;let p=document.querySelector('#movie_player,.html5-video-player');if(p&&p.pauseVideo)p.pauseVideo();document.querySelectorAll('video').forEach(v=>v.pause());if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});})()",null);
         // Marked active first so the web fullscreen exit below keeps the exit icon and the hidden toolbar
         nativePlayerActive=true;
         if(webView.isVideoFullscreen())webView.exitFullScreen();
@@ -2362,15 +2581,9 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         if (this.nativePlayerActive) {
             this.nativePlayerFragment.setAspectRatio(aspectRatio);
         } else {
-            this.webView.setAspectRatio(this.currentAspectRatio.name().toLowerCase());
+            this.webView.setAspectRatio(this.currentAspectRatio.name().toLowerCase(java.util.Locale.ROOT));
         }
         getSharedPrefs().edit().putInt(ASPECT_RATIO_KEY, this.currentAspectRatio.ordinal()).apply();
-    }
-
-    @Override // com.thekirankumar.youtubeauto2.fragments.SafetyWarningFragment.FragmentInteractionListener
-    public void onReadyToExitSafetyInstructions(SafetyWarningFragment safetyWarningFragment) {
-        this.warningAccepted = true;
-        hideWarningScreen();
     }
 
     /* JADX INFO: renamed from: com.thekirankumar.youtubeauto2.fragments.WebViewCarFragment$27 */
@@ -2477,8 +2690,13 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
     }
 
     private class CustomWebViewClient extends WebViewClient {
+        @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+            return com.sya.tube.web.RendererGone.rebuild(WebViewCarFragment.this, view, detail);
+        }
         @Override public void doUpdateVisitedHistory(WebView view,String url,boolean reload) {
             super.doUpdateVisitedHistory(view,url,reload);
+            // Remembered so Home still knows the service after the start page is opened
+            if(com.sya.tube.remote.Media.PATREON_SERVICE.equals(currentService()))android.webkit.CookieManager.getInstance().flush();
             if(!PlaybackOwner.isContentVideo(WebViewCarFragment.this.webView)) {
                 setPlaybackControls(false,false);
                 if(PlaybackOwner.isActive(WebViewCarFragment.this.webView)&&getContext()!=null) {
@@ -2506,45 +2724,31 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         @Override // android.webkit.WebViewClient
         public void onUnhandledKeyEvent(WebView webView, KeyEvent keyEvent) {
             super.onUnhandledKeyEvent(webView, keyEvent);
-            if (keyEvent.getAction() == 1) {
-                if (!WebViewCarFragment.this.warningScreenOpen || keyEvent.getKeyCode() != 23) {
-                    if (WebViewCarFragment.this.webView.isVideoFullscreen()) {
-                        if (keyEvent.getKeyCode() == 19) {
-                            WebViewCarFragment.this.showToolbar();
-                            WebViewCarFragment.this.showCornerControls();
-                            WebViewCarFragment.this.cornerControls.requestFocus(android.view.View.FOCUS_UP);
-                            return;
-                        }
-                        if (keyEvent.getKeyCode() == 20) {
-                            WebViewCarFragment.this.cornerControls.clearFocus();
-                            WebViewCarFragment.this.hideToolbar();
-                            WebViewCarFragment.this.hideCornerControls(true);
-                            return;
-                        } else {
-                            if (keyEvent.getKeyCode() == 23) {
-                                if (WebViewCarFragment.this.playerState == 3) {
-                                    WebViewCarFragment.this.webView.pauseVideo();
-                                    return;
-                                } else {
-                                    WebViewCarFragment.this.webView.playVideo();
-                                    return;
-                                }
-                            }
-                            if (keyEvent.getKeyCode() == 22) {
-                                WebViewCarFragment.this.webView.seekBySeconds(10);
-                                return;
-                            } else {
-                                if (keyEvent.getKeyCode() == 21) {
-                                    WebViewCarFragment.this.webView.seekBySeconds(-10);
-                                    return;
-                                }
-                                return;
-                            }
-                        }
-                    }
-                    return;
-                }
-                WebViewCarFragment.this.onReadyToExitSafetyInstructions(null);
+            // Rotary and d-pad keys the page left unused drive a full-screen video
+            if (keyEvent.getAction() != KeyEvent.ACTION_UP || !WebViewCarFragment.this.webView.isVideoFullscreen()) return;
+            switch (keyEvent.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_UP:
+                    WebViewCarFragment.this.showToolbar();
+                    WebViewCarFragment.this.showCornerControls();
+                    WebViewCarFragment.this.cornerControls.requestFocus(android.view.View.FOCUS_UP);
+                    break;
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                    WebViewCarFragment.this.cornerControls.clearFocus();
+                    WebViewCarFragment.this.hideToolbar();
+                    WebViewCarFragment.this.hideCornerControls(true);
+                    break;
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                    if (WebViewCarFragment.this.playerState == 3) WebViewCarFragment.this.webView.pauseVideo();
+                    else WebViewCarFragment.this.webView.playVideo();
+                    break;
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    WebViewCarFragment.this.webView.seekBySeconds(10);
+                    break;
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                    WebViewCarFragment.this.webView.seekBySeconds(-10);
+                    break;
+                default:
+                    break;
             }
         }
 
@@ -2582,6 +2786,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
         @Override // android.webkit.WebViewClient
         public boolean shouldOverrideUrlLoading(WebView webView, String str) {
             if (com.sya.tube.library.LibraryPages.isPlayLink(str)) { playLibraryLink(str); return true; }
+            if (openStartLink(str)) return true;
             if (WebViewCarFragment.this.nativePlayerActive) {
                 WebViewCarFragment.this.hideNativePlayer();
             }

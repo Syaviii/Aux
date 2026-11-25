@@ -22,6 +22,9 @@ public class VideoWebView extends VideoEnabledWebView {
     private void init() {
     }
 
+    /** The page callbacks this view gives its pages, a sign-in window opened from it gets the same ones */
+    public JavascriptCallback pageCallbacks;
+
     public VideoWebView(Context context) {
         super(context);
         this.TOUCH_TOLERANCE = 20.0f;
@@ -48,6 +51,9 @@ public class VideoWebView extends VideoEnabledWebView {
         return super.dispatchKeyEvent(keyEvent);
     }
 
+    @Override
+    public boolean performClick() { return super.performClick(); }
+
     @Override // android.webkit.WebView, android.view.View
     public boolean onTouchEvent(MotionEvent motionEvent) {
         if (motionEvent.getAction() == 0) {
@@ -56,6 +62,8 @@ public class VideoWebView extends VideoEnabledWebView {
         }
         if (motionEvent.getAction() == 1 && Math.abs(this.lastDownX - motionEvent.getX()) < this.TOUCH_TOLERANCE && Math.abs(this.lastDownY - motionEvent.getY()) < this.TOUCH_TOLERANCE) {
             showKeyboardIfInput();
+            // Reported as a click for accessibility services, nothing listens for clicks on the page view itself
+            performClick();
         }
         return super.onTouchEvent(motionEvent);
     }
@@ -65,15 +73,31 @@ public class VideoWebView extends VideoEnabledWebView {
     }
 
     public void pauseVideo() {
-        evaluateJavascript("(function(){var v=document.querySelector('video');if(v)v.pause();})()",null);
+        evaluateJavascript("(function(){window.__auxKeep=false;var v=document.querySelector('video');if(v)v.pause();})()",null);
+    }
+
+    /**
+     * While the car screen is behind another app some players (Twitch's) pause themselves, with this on a video that
+     * pauses without Aux asking is started again. Every pause Aux makes for the driver turns it off first
+     */
+    /** Back in front, a video that paused itself while hidden plays again, one the driver paused stays paused */
+    public void resumeKept() {
+        evaluateJavascript("(function(){var keep=window.__auxKeep;window.__auxKeep=false;var v=document.querySelector('video');"
+            +"if(keep&&v&&v.paused&&!v.ended){var p=v.play();if(p)p.catch(function(){});}})()",null);
+    }
+
+    public void keepPlaying(boolean on) {
+        evaluateJavascript("(function(){window.__auxKeep="+on+";if(window.__auxKeepBound)return;window.__auxKeepBound=true;"
+            +"document.addEventListener('pause',function(e){var v=e.target;if(!v||v.tagName!=='VIDEO'||!window.__auxKeep)return;"
+            +"setTimeout(function(){if(window.__auxKeep&&v.paused&&!v.ended){var p=v.play();if(p)p.catch(function(){});}},300);},true);})()",null);
     }
 
     public void playPreviousTrack() {
-        evaluateJavascript("(function(){if(location.pathname.indexOf('/shorts/')===0){var shortPrev=document.querySelector('#navigation-button-up button,button[aria-label=\"Previous video\"]');if(shortPrev&&!shortPrev.disabled){shortPrev.click();return;}}var v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');if(v&&v.currentTime>3){v.currentTime=0;return;}var prev=document.querySelector('.ytp-prev-button');if(prev&&!prev.disabled){prev.click();return;}history.back();})()",null);
+        evaluateJavascript("(function(){if(location.pathname.indexOf('/shorts/')===0){var shortPrev=document.querySelector('#navigation-button-up button,button[aria-label=\"Previous video\"]');if(shortPrev&&!shortPrev.disabled){shortPrev.click();return;}}var v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');if(v&&v.currentTime>3&&isFinite(v.duration)){v.currentTime=0;return;}var prev=document.querySelector('.ytp-prev-button');if(prev&&!prev.disabled){prev.click();return;}history.back();})()",null);
     }
 
     public void togglePlayback() {
-        evaluateJavascript("(function(){var v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');if(!v)return;if(v.paused){var p=v.play();if(p)p.catch(function(){});}else v.pause();})()",null);
+        evaluateJavascript("(function(){var v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');if(!v)return;if(v.paused){var p=v.play();if(p)p.catch(function(){});}else{window.__auxKeep=false;v.pause();}})()",null);
     }
 
     public void playVideo() {
@@ -136,7 +160,7 @@ public class VideoWebView extends VideoEnabledWebView {
     }
 
     public void pauseVideoAndSetFlag() {
-        evaluateJavascript("(function(){var v=document.querySelector('video');if(v&&!v.paused){window.pausedDueToMinimize=true;v.pause();}})()",null);
+        evaluateJavascript("(function(){var v=document.querySelector('video');window.__auxKeep=false;if(v&&!v.paused){window.pausedDueToMinimize=true;v.pause();}})()",null);
     }
 
     public void attachVideoListeners() {
@@ -187,11 +211,11 @@ public class VideoWebView extends VideoEnabledWebView {
     }
 
     public void showKeyboardIfInput() {
-        evaluateJavascript("setTimeout(function(){var el=document.activeElement;if(!el||!window.nativecallbacks)return;if(el instanceof HTMLInputElement||el.isContentEditable){window.tubeEditingElement=el;window.nativecallbacks.showKeyboard(el.isContentEditable?el.innerText:el.value);}},300)",null);
+        evaluateJavascript("setTimeout(function(){var el=document.activeElement;if(!el||!window.nativecallbacks)return;if(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement||el.isContentEditable){window.tubeEditingElement=el;window.nativecallbacks.showKeyboard(el.isContentEditable?el.innerText:el.value);}},300)",null);
     }
 
     public void sendKeyboardEnterEvent() {
-        evaluateJavascript("(function(){var el=window.tubeEditingElement||document.activeElement;if(!el)return;var q=(el.value||el.innerText||'').trim();var host=location.hostname;var name=el.name||'';if(q&&(/(^|\\.)youtube\\.com$/.test(host))&&(name==='search_query'||el.type==='search')){location.href='https://www.youtube.com/results?search_query='+encodeURIComponent(q);return;}if(q&&(/(^|\\.)google\\.com$/.test(host))&&(name==='q'||el.type==='search')){location.href='https://www.google.com/search?q='+encodeURIComponent(q);return;}var form=el.form||el.closest('form');if(form){if(form.requestSubmit)form.requestSubmit();else form.submit();return;}['keydown','keypress','keyup'].forEach(function(type){el.dispatchEvent(new KeyboardEvent(type,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));});})()",null);
+        evaluateJavascript("(function(){var el=window.tubeEditingElement;if(!el||!el.isConnected)el=document.activeElement;if(!el)return;var q=(el.value||el.innerText||'').trim();var host=location.hostname;var name=el.name||'';if(q&&(/(^|\\.)youtube\\.com$/.test(host))&&(name==='search_query'||el.type==='search')){location.href='https://www.youtube.com/results?search_query='+encodeURIComponent(q);return;}if(q&&(/(^|\\.)google\\.com$/.test(host))&&(name==='q'||el.type==='search')){location.href='https://www.google.com/search?q='+encodeURIComponent(q);return;}var form=el.form||el.closest('form');if(form){if(form.requestSubmit)form.requestSubmit();else form.submit();return;}['keydown','keypress','keyup'].forEach(function(type){el.dispatchEvent(new KeyboardEvent(type,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));});})()",null);
     }
 
     public void seekBySeconds(int i) {
@@ -202,8 +226,15 @@ public class VideoWebView extends VideoEnabledWebView {
         evaluateJavascript("(function(){var v=document.querySelector('video');if(v&&window.nativecallbacks)window.nativecallbacks.onVideoCurrentTimeResult(Math.floor(v.currentTime));})()",null);
     }
 
+    /**
+     * Writes the car keyboard's text into the page field. Sites built with React (Patreon, many sign-in forms) ignore a
+     * plain value assignment, so the browser's own value setter is used, which they see as real typing
+     */
     public void enterEditText(String str) {
-        evaluateJavascript("(function(){var el=window.tubeEditingElement||document.activeElement;if(!el)return;var value="+org.json.JSONObject.quote(str)+";if(el.isContentEditable)el.innerText=value;else el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));})()",null);
+        evaluateJavascript("(function(){var el=window.tubeEditingElement;if(!el||!el.isConnected)el=document.activeElement;if(!el)return;var value="+org.json.JSONObject.quote(str)+";"
+            +"if(el.isContentEditable){el.innerText=value;}else{var proto=el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;"
+            +"var d=Object.getOwnPropertyDescriptor(proto,'value');if(d&&d.set)d.set.call(el,value);else el.value=value;}"
+            +"window.tubeEditingElement=el;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));})()",null);
     }
 
     public void applyPreferredQuality(String preference) {

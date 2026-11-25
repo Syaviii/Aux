@@ -18,7 +18,7 @@ public final class CarRemote {
         void remoteQuality(String value);
         void remoteFullscreen();
         void remoteState(Consumer<State> out);
-        /** The id of the video the car shows, or null when it is not on a video */
+        /** The key of the video the car shows (see Media), or null when it is not on a video */
         String remoteVideoId();
         /** Play or pause, used by the steering wheel buttons and the phone's media controls */
         void remoteSetPlaying(boolean playing);
@@ -29,22 +29,29 @@ public final class CarRemote {
         void remoteSpeed(float speed);
         /** A phone video or media server video picked on the phone's library page */
         void remotePlayLink(String link);
+        /** A place picked on the phone's start page, the car goes there too */
+        void remoteOpen(String url);
     }
 
-    /** The video id in a watch, shorts or youtu.be address, or null */
-    public static String videoId(String url) {
-        String playable = playableUrl(url);
-        if (playable == null) return null;
-        return android.net.Uri.parse(playable).getQueryParameter("v");
-    }
+    /** The key of the video an address shows (see Media), or null */
+    public static String videoId(String url) { return Media.key(url); }
 
     public static final class State {
         public final String title, quality;
         public final boolean playing, fullscreen, ad;
+        /** Audio sync applies, only Aux's own player (YouTube handoff, phone and server videos) has it */
+        public final boolean syncable;
         public final long positionMs, durationMs;
         public final float speed;
+        /** A live stream, it has no length to seek in and plays at the broadcast's own pace */
+        public final boolean live;
 
-        public State(String title, boolean playing, long positionMs, long durationMs, String quality, boolean fullscreen, boolean ad, float speed) {
+        public State(String title, boolean playing, long positionMs, long durationMs, String quality, boolean fullscreen, boolean ad, float speed, boolean syncable) {
+            this(title, playing, positionMs, durationMs, quality, fullscreen, ad, speed, syncable, false);
+        }
+
+        public State(String title, boolean playing, long positionMs, long durationMs, String quality, boolean fullscreen, boolean ad, float speed, boolean syncable, boolean live) {
+            this.syncable = syncable; this.live = live;
             this.title = title; this.playing = playing; this.positionMs = positionMs; this.durationMs = durationMs; this.quality = quality; this.fullscreen = fullscreen; this.ad = ad; this.speed = speed;
         }
     }
@@ -58,22 +65,8 @@ public final class CarRemote {
     /** The car screen while Android Auto shows Tube, otherwise null */
     public static Car car() { return car.get(); }
 
-    /** A watch or shorts address the car can play, or null for anything else */
-    public static String playableUrl(String url) {
-        if (url == null) return null;
-        android.net.Uri uri = android.net.Uri.parse(url);
-        String host = uri.getHost();
-        if (host == null || !(host.equals("youtube.com") || host.endsWith(".youtube.com") || host.equals("youtu.be"))) return null;
-        String path = uri.getPath() == null ? "" : uri.getPath();
-        String id = "/watch".equals(path) ? uri.getQueryParameter("v") : host.equals("youtu.be") && path.length() > 1 ? path.substring(1) : null;
-        if (id == null || id.isEmpty()) return null;
-        android.net.Uri.Builder out = new android.net.Uri.Builder().scheme("https").authority("m.youtube.com").path("/watch").appendQueryParameter("v", id);
-        String list = uri.getQueryParameter("list");
-        if (list != null) out.appendQueryParameter("list", list);
-        String start = uri.getQueryParameter("t");
-        if (start != null) out.appendQueryParameter("t", start);
-        return out.build().toString();
-    }
+    /** A YouTube, Patreon or Twitch address the car can play, or null for anything else */
+    public static String playableUrl(String url) { return Media.playableUrl(url); }
 
     private CarRemote() {}
 }

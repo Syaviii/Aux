@@ -24,7 +24,7 @@ public class GridAutofitLayoutManager extends GridLayoutManager {
     }
 
     private int checkedColumnWidth(Context context, int i) {
-        return i <= 0 ? (int) TypedValue.applyDimension(1, 48.0f, context.getResources().getDisplayMetrics()) : i;
+        return i <= 0 ? (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48.0f, context.getResources().getDisplayMetrics()) : i;
     }
 
     public void setColumnWidth(int i) {
@@ -41,7 +41,7 @@ public class GridAutofitLayoutManager extends GridLayoutManager {
         int width = getWidth();
         int height = getHeight();
         if (this.mColumnWidthChanged && this.mColumnWidth > 0 && width > 0 && height > 0) {
-            if (getOrientation() == 1) {
+            if (getOrientation() == RecyclerView.VERTICAL) {
                 paddingTop = (width - getPaddingRight()) - getPaddingLeft();
             } else {
                 paddingTop = (height - getPaddingTop()) - getPaddingBottom();

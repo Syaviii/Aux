@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -19,6 +20,11 @@
                 android:paddingEnd="4dp"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent">
+                <ImageButton
+                    android:id="@+id/aux_menu_button"
+                    style="@style/TubeBarButton"
+                    android:src="@drawable/tube_ic_aux"
+                    android:contentDescription="@string/phone_aux_menu"/>
                 <ImageButton
                     android:id="@+id/home_button"
                     style="@style/TubeBarButton"
@@ -58,6 +64,8 @@
                         android:maxLines="1"
                         android:singleLine="true"
                         android:inputType="text"
+                        android:importantForAutofill="no"
+                        tools:ignore="TextFields,NestedWeights"
                         android:imeOptions="actionSearch"/>
                     <ImageButton
                         android:id="@+id/search_clear"
@@ -87,39 +95,6 @@
                 android:layout_width="match_parent"
                 android:layout_height="12dp"/>
         </FrameLayout>
-        <LinearLayout
-            android:id="@+id/car_hint"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:visibility="gone"
-            android:background="@drawable/bg_hint_card"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp"
-            android:layout_marginBottom="8dp"
-            android:paddingStart="14dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-            <TextView
-                android:text="@string/phone_car_hint"
-                android:textColor="@color/tube_on_surface"
-                android:textSize="13sp"
-                android:lineSpacingExtra="2dp"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"/>
-            <ImageButton
-                android:id="@+id/car_hint_close"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:padding="11dp"
-                android:scaleType="fitCenter"
-                android:background="@drawable/bg_round_ripple"
-                android:src="@drawable/tube_ic_close"
-                android:tint="@color/tube_muted"
-                android:contentDescription="@string/phone_dismiss"/>
-        </LinearLayout>
         <LinearLayout
             android:id="@+id/recent_strip"
             android:orientation="vertical"

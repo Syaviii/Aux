@@ -55,6 +55,8 @@ public final class WebWarmUp {
         }
     }
 
+    // PROFILE_URL_PREFETCH is the PREFETCH_URL_V5 feature lint asks for, it only knows it by the older name
+    @android.annotation.SuppressLint("RequiresFeature")
     @OptIn(markerClass = {Profile.ExperimentalWarmUpRendererProcess.class, Profile.ExperimentalPreconnect.class, Profile.ExperimentalUrlPrefetch.class})
     private static void warm(String homeUrl) {
         try {

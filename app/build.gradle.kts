@@ -23,8 +23,8 @@ android {
         applicationId = "dev.syavi.aux"
         minSdk = 24
         targetSdk = 35
-        versionCode = 44
-        versionName = "1.0.2"
+        versionCode = 55
+        versionName = "1.1.0"
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         buildConfigField("String", "UPDATE_API", "\"$updateApi\"")
         buildConfigField("String", "USAGE_ENDPOINT", "\"$usageEndpoint\"")
@@ -57,26 +57,30 @@ android {
         disable += "ExpiredTargetSdkVersion"
         // android:tint works on ImageView since Android 5, Aux starts at Android 7
         disable += "UseAppTint"
-        // Retained upstream numeric SDK flags and incomplete upstream translations.
-        warning += listOf("WrongConstant", "MissingTranslation", "MissingIntentFilterForMediaSearch")
+        // Aux ships in English only, its text sits beside the code that shows it rather than in string resources
+        disable += listOf("SetTextI18n", "HardcodedText")
+        // Aux is a browser, every page it opens needs JavaScript
+        disable += "SetJavaScriptEnabled"
+        // Library, Gradle and target SDK updates change behaviour, so they are done and tested on their own, not as lint warnings
+        disable += listOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion", "OldTargetApi")
     }
 }
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
-    implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
+    coreLibraryDesugaring(libs.desugar.jdk.libs.nio)
+    implementation(libs.newpipe.extractor)
     // martoreto's unofficial Android Auto SDK, the same one CarStream uses, fetched at build time rather than kept in this repository
-    implementation("com.github.martoreto:aauto-sdk:v4.5@aar")
-    implementation("androidx.appcompat:appcompat:1.7.1")
-    implementation("androidx.webkit:webkit:1.17.1")
-    implementation("androidx.fragment:fragment:1.8.9")
-    implementation("androidx.recyclerview:recyclerview:1.4.0")
-    implementation("androidx.cardview:cardview:1.0.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.2.1")
-    implementation("androidx.media:media:1.7.0")
+    implementation(libs.aauto.sdk) { artifact { type = "aar" } }
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.webkit)
+    implementation(libs.androidx.fragment)
+    implementation(libs.androidx.recyclerview)
+    implementation(libs.androidx.cardview)
+    implementation(libs.androidx.constraintlayout)
+    implementation(libs.androidx.media)
     implementation(libs.androidx.car.app)
     implementation(libs.androidx.car.app.projected)
-    implementation("com.google.android.exoplayer:exoplayer:2.19.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation(libs.exoplayer)
+    implementation(libs.okhttp)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)

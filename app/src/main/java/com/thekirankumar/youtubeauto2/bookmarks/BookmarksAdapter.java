@@ -72,7 +72,7 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
                     if (BookmarksAdapter.this.deleteMode) {
                         BookmarksAdapter.this.deleteMode = false;
                     }
-                    BookmarksAdapter.this.notifyDataSetChanged();
+                    BookmarksAdapter.this.redrawDeleteMode();
                 }
             });
             bookmarkViewHolder.delete.setOnClickListener(new View.OnClickListener() {
@@ -90,7 +90,7 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
                     } else {
                         BookmarksAdapter.this.deleteMode = true;
                     }
-                    BookmarksAdapter.this.notifyDataSetChanged();
+                    BookmarksAdapter.this.redrawDeleteMode();
                     return true;
                 }
             });
@@ -114,7 +114,7 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
                 if (BookmarksAdapter.this.deleteMode) {
                     BookmarksAdapter.this.deleteMode = false;
                 }
-                BookmarksAdapter.this.notifyDataSetChanged();
+                BookmarksAdapter.this.redrawDeleteMode();
                 if (BookmarksAdapter.this.bookmarksClickCallback != null) {
                     BookmarksAdapter.this.bookmarksClickCallback.onBookmarkAddCurrentPage();
                 }
@@ -143,7 +143,7 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
             super(((LayoutInflater) context.getSystemService(android.content.Context.LAYOUT_INFLATER_SERVICE)).inflate(R.layout.bookmark_layout, viewGroup, false));
             AspectRatioFrameLayout aspectRatioFrameLayout = this.itemView.findViewById(R.id.bookmark_artwork);
             aspectRatioFrameLayout.setAspectRatio(16f / 9f);
-            aspectRatioFrameLayout.setResizeMode(1);
+            aspectRatioFrameLayout.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH);
             this.title = (TextView) this.itemView.findViewById(R.id.bookmark_title);
             this.thumbnail = (ImageView) this.itemView.findViewById(R.id.bookmark_thumbnail);
             this.favicon = (ImageView) this.itemView.findViewById(R.id.bookmark_favicon);
@@ -193,4 +193,7 @@ public class BookmarksAdapter extends RecyclerView.Adapter<BookmarksAdapter.Book
             }
         }
     }
+
+    // Delete mode shows or hides the delete button on every card, the payload redraws them in place without the change fade
+    private void redrawDeleteMode() { notifyItemRangeChanged(0, getItemCount(), "deleteMode"); }
 }
