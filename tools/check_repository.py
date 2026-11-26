@@ -20,7 +20,7 @@ EXACT = {
     "app/.gitignore", "app/build.gradle.kts", "app/proguard-rules.pro", "setup/build.gradle.kts",
     "gradle/libs.versions.toml", "gradle/wrapper/gradle-wrapper.jar", "gradle/wrapper/gradle-wrapper.properties",
     "docs/icon.png", "docs/banner.svg",
-    "tools/check_repository.py", "tools/test_check_repository.py", ".github/workflows/checks.yml",
+    "tools/check_repository.py", "tools/test_check_repository.py", ".github/workflows/checks.yml", ".github/workflows/ci.yml",
 }
 SOURCE_EXTENSIONS = {".java", ".kt", ".xml", ".png", ".webp", ".jpg", ".css", ".js", ".mp3"}
 FORBIDDEN_PARTS = {"build", ".gradle", ".kotlin", ".idea", "__pycache__", "keys", "backups", "artifacts"}
