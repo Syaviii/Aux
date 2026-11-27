@@ -18,7 +18,7 @@ import android.widget.TextView;
 import com.sya.tube.player.SyncedRenderersFactory;
 import com.thekirankumar.youtubeauto2.R;
 
-/** Phone side controls for whatever plays on the car screen, shown only while Android Auto runs Tube */
+/** Phone side controls for whatever plays on the car screen, shown only while a video there is playing or paused */
 public final class CarRemoteBar {
     private static final String[] QUALITIES = {"auto", "large", "hd720", "hd1080"};
     private static final String[] QUALITY_LABELS = {"Auto", "480p", "720p", "1080p"};
@@ -195,13 +195,16 @@ public final class CarRemoteBar {
     private void refresh() {
         root.removeCallbacks(tick);
         CarRemote.Car car = CarRemote.car();
-        root.setVisibility(car == null ? View.GONE : View.VISIBLE);
-        if (car != null) car.remoteState(this::show);
+        // With the car up the remote stays as it is until the car answers, so it does not blink every second
+        if (car == null) root.setVisibility(View.GONE);
+        else car.remoteState(this::show);
         if (onCarTick != null) onCarTick.run();
         root.postDelayed(tick, 1000);
     }
 
     private void show(CarRemote.State state) {
+        root.setVisibility(state.active ? View.VISIBLE : View.GONE);
+        if (!state.active) return;
         String name = state.title == null || state.title.isEmpty() ? "Nothing playing yet" : state.title;
         if (!name.contentEquals(title.getText())) title.setText(name);
         // A live stream has nothing to seek in, the bar becomes a live marker and the skips and speed go

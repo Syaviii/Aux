@@ -50,10 +50,20 @@ public final class CarRemote {
             this(title, playing, positionMs, durationMs, quality, fullscreen, ad, speed, syncable, false);
         }
 
+        /** A video is playing or paused on the car screen, the phone hides its remote otherwise */
+        public final boolean active;
+
         public State(String title, boolean playing, long positionMs, long durationMs, String quality, boolean fullscreen, boolean ad, float speed, boolean syncable, boolean live) {
-            this.syncable = syncable; this.live = live;
+            this(true, title, playing, positionMs, durationMs, quality, fullscreen, ad, speed, syncable, live);
+        }
+
+        public State(boolean active, String title, boolean playing, long positionMs, long durationMs, String quality, boolean fullscreen, boolean ad, float speed, boolean syncable, boolean live) {
+            this.active = active; this.syncable = syncable; this.live = live;
             this.title = title; this.playing = playing; this.positionMs = positionMs; this.durationMs = durationMs; this.quality = quality; this.fullscreen = fullscreen; this.ad = ad; this.speed = speed;
         }
+
+        /** The car screen with no video on it */
+        public static final State NONE = new State(false, "", false, 0, 0, null, false, false, 1f, false, false);
     }
 
     private static WeakReference<Car> car = new WeakReference<>(null);

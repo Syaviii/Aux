@@ -1596,7 +1596,7 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
             out.accept(new com.sya.tube.remote.CarRemote.State(nativePlayerFragment.title(),nativePlayerFragment.playing(),nativePlayerFragment.position(),nativePlayerFragment.duration(),nativePlayerFragment.isMedia()?null:videoQuality,fullscreen,false,nativePlayerFragment.speed(),true));
             return;
         }
-        if(webView==null)return;
+        if(webView==null){out.accept(com.sya.tube.remote.CarRemote.State.NONE);return;}
         webView.evaluateJavascript("(()=>{let v=window.tubeActiveVideo?window.tubeActiveVideo():document.querySelector('video');let p=document.querySelector('#movie_player,.html5-video-player');return {title:document.title.replace(/ - YouTube$/,''),playing:!!(v&&!v.paused),pos:v?v.currentTime:0,dur:v&&isFinite(v.duration)?v.duration:0,ad:!!(p&&(p.classList.contains('ad-showing')||p.classList.contains('ad-interrupting'))),rate:v?v.playbackRate:1,has:!!v}})()",value->{
             try {
                 org.json.JSONObject state=new org.json.JSONObject(value);
@@ -1608,7 +1608,9 @@ public class WebViewCarFragment extends CarFragment implements MainCarActivity.A
                 boolean youtube=com.sya.tube.remote.Media.isYoutube(key);
                 // A page that is not a video, such as a feed with players hidden in it, has no timeline either
                 boolean none=key==null;
-                out.accept(new com.sya.tube.remote.CarRemote.State(none?"":com.sya.tube.remote.Media.cleanTitle(key,state.optString("title")),!none&&state.optBoolean("playing"),none?0:(long)(state.optDouble("pos")*1000),none?0:(long)(state.optDouble("dur")*1000),youtube?videoQuality:null,fullscreen,youtube&&state.optBoolean("ad"),com.sya.tube.remote.Media.isLive(key)?1f:(float)state.optDouble("rate",1),youtube||key==null,com.sya.tube.remote.Media.isLive(key)));
+                // A video page whose video has not started yet has nothing to control, the phone hides the remote until it does
+                boolean active=!none&&state.optBoolean("has")&&(state.optDouble("dur")>0||state.optDouble("pos")>0||state.optBoolean("playing"));
+                out.accept(new com.sya.tube.remote.CarRemote.State(active,none?"":com.sya.tube.remote.Media.cleanTitle(key,state.optString("title")),!none&&state.optBoolean("playing"),none?0:(long)(state.optDouble("pos")*1000),none?0:(long)(state.optDouble("dur")*1000),youtube?videoQuality:null,fullscreen,youtube&&state.optBoolean("ad"),com.sya.tube.remote.Media.isLive(key)?1f:(float)state.optDouble("rate",1),youtube||key==null,com.sya.tube.remote.Media.isLive(key)));
             } catch(Exception ignored) {}
         });
     }

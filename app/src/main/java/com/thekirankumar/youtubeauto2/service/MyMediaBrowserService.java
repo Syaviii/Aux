@@ -45,6 +45,9 @@ public class MyMediaBrowserService extends MediaBrowserServiceCompat {
     // What the car plays, kept so the notification is only rebuilt when something visible changes
     private String carTitle;
     private boolean carPlaying, carShown;
+    // Android 16 refuses audio focus to a background app, and the car screen does not count as the foreground, so while a
+    // video is on the car this stays a foreground service, paused too, or a paused video could never be played again
+    private boolean carForeground;
     private long carDuration;
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -116,7 +119,7 @@ public class MyMediaBrowserService extends MediaBrowserServiceCompat {
     private void showCar(String title, boolean playing, long positionMs, long durationMs) {
         if (title == null) {
             if (!carShown) return;
-            carShown = false; carTitle = null;
+            carShown = false; carTitle = null; carForeground = false;
             stopForeground(true);
             NotificationManagerCompat.from(this).cancel(NOTIFICATION);
             mediaSessionCompat.setPlaybackState(new PlaybackStateCompat.Builder().setActions(getAvailableActions()).setState(PlaybackStateCompat.STATE_STOPPED, 0, 0).build());
@@ -136,7 +139,7 @@ public class MyMediaBrowserService extends MediaBrowserServiceCompat {
             .setState(playing ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED, positionMs, playing ? 1f : 0f)
             .build());
         mediaSessionCompat.setActive(true);
-        if (changed && !SettingsUtils.isDisabledNotifications(this)) postNotification(title, playing);
+        if (changed || !carForeground) postNotification(title, playing);
     }
 
     private void postNotification(String title, boolean playing) {
@@ -161,16 +164,17 @@ public class MyMediaBrowserService extends MediaBrowserServiceCompat {
             .addAction(R.drawable.tube_ic_forward, "Forward 10 seconds", command(FORWARD, 3))
             .addAction(R.drawable.ic_video_next, "Next video", command("next", 4))
             .setStyle(new androidx.media.app.NotificationCompat.MediaStyle().setMediaSession(mediaSessionCompat.getSessionToken()).setShowActionsInCompactView(0, 1, 2));
-        // Playing makes this a media foreground service so the phone does not stop it behind Maps, paused leaves the notification
-        // Android 12 and later refuse a foreground start while the app counts as in the background, the notification still shows then
+        // A video on the car, playing or paused, makes this a media foreground service, see carForeground. Android 12 and later
+        // can refuse the start while the app counts as in the background, the notification still shows then and the next
+        // report from the car tries again
         android.app.Notification notification = builder.build();
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            if (playing) try { androidx.core.app.ServiceCompat.startForeground(this, NOTIFICATION, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK); } catch (RuntimeException refused) { }
+            try { androidx.core.app.ServiceCompat.startForeground(this, NOTIFICATION, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK); carForeground = true; } catch (RuntimeException refused) { }
             return;
         }
         try {
-            if (playing) androidx.core.app.ServiceCompat.startForeground(this, NOTIFICATION, notification, Build.VERSION.SDK_INT >= 29 ? android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK : 0);
-            else { stopForeground(false); NotificationManagerCompat.from(this).notify(NOTIFICATION, notification); }
+            androidx.core.app.ServiceCompat.startForeground(this, NOTIFICATION, notification, Build.VERSION.SDK_INT >= 29 ? android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK : 0);
+            carForeground = true;
         } catch (RuntimeException refused) {
             try { NotificationManagerCompat.from(this).notify(NOTIFICATION, notification); } catch (RuntimeException ignored) { }
         }
