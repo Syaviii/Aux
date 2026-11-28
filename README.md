@@ -54,6 +54,9 @@ Usage reporting is on by default to help improve Aux. Reports include app and An
 | 2021 Kia K5 | ✅ | ✅ | 🟨 | ✅ | ✅ | ✅ |
 | 2025 Ford Bronco Sport | ✅ | ✅ | ✅ | ✅ | ❔ | ✅ |
 | 2021 Ford Edge | ✅ | ✅ | ✅\* | ✅ | ❔ | ❔ |
+| 2018 Jeep Compass | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 2021 Toyota Corolla | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 2023 BMW i4 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 Owner reports: ✅ Fully working / 🟨 Working with quirks / ❔ Untested
 
